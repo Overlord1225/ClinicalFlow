@@ -89,75 +89,132 @@ export async function getStudent(id) {
 }
 
 export async function getProgress(studentId) {
-  const { data, error } = await supabase
-    .from('required_cases')
-    .select(`
-      id,
-      name,
-      case_progress!left(completed, verified_by)
-    `)
-    .eq('case_progress.student_id', studentId);
+  try {
+    const { data, error } = await supabase
+      .from('required_cases')
+      .select(`
+        id,
+        name,
+        case_progress!left(completed, verified_by)
+      `)
+      .eq('case_progress.student_id', studentId);
 
-  if (error) throw error;
-  const cases = data.map(c => ({
-    name: c.name,
-    completed: c.case_progress?.[0]?.completed || false,
-    verifiedBy: c.case_progress?.[0]?.verified_by || null
-  }));
-  return { studentId, cases };
+    if (error) {
+      console.error('Error fetching progress:', error);
+      return { studentId, cases: [] };
+    }
+    
+    if (!data || data.length === 0) {
+      return { studentId, cases: [] };
+    }
+    
+    const cases = data.map(c => ({
+      name: c.name,
+      completed: c.case_progress?.[0]?.completed || false,
+      verifiedBy: c.case_progress?.[0]?.verified_by || null
+    }));
+    return { studentId, cases };
+  } catch (error) {
+    console.error('Error in getProgress:', error);
+    return { studentId, cases: [] };
+  }
 }
 
 export async function getSchedules(studentId) {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select('*')
-    .eq('student_id', studentId);
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .from('schedules')
+      .select('*')
+      .eq('student_id', studentId);
+    if (error) {
+      console.error('Error fetching schedules:', error);
+      return [];
+    }
+    return data || [];
+  } catch (error) {
+    console.error('Error in getSchedules:', error);
+    return [];
+  }
 }
 
 export async function getAllSchedules() {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select('*, users(name)');
-  if (error) throw error;
-  return data.map(s => ({ ...s, studentName: s.users?.name }));
+  try {
+    const { data, error } = await supabase
+      .from('schedules')
+      .select('*, users(name)');
+    if (error) {
+      console.error('Error fetching all schedules:', error);
+      return [];
+    }
+    return (data || []).map(s => ({ ...s, studentName: s.users?.name }));
+  } catch (error) {
+    console.error('Error in getAllSchedules:', error);
+    return [];
+  }
 }
 
 export async function getNotifications(userId) {
-  const { data, error } = await supabase
-    .from('notifications')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false });
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+    if (error) {
+      console.error('Error fetching notifications:', error);
+      return [];
+    }
+    return data || [];
+  } catch (error) {
+    console.error('Error in getNotifications:', error);
+    return [];
+  }
 }
 
 export async function markRead(notifId) {
-  const { error } = await supabase
-    .from('notifications')
-    .update({ read: true })
-    .eq('id', notifId);
-  if (error) throw error;
+  try {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ read: true })
+      .eq('id', notifId);
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error marking notification as read:', error);
+  }
 }
 
 export async function getOpenSlots() {
-  const { data, error } = await supabase
-    .from('open_slots')
-    .select('*')
-    .order('date');
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .from('open_slots')
+      .select('*')
+      .order('date');
+    if (error) {
+      console.error('Error fetching open slots:', error);
+      return [];
+    }
+    return data || [];
+  } catch (error) {
+    console.error('Error in getOpenSlots:', error);
+    return [];
+  }
 }
 
 export async function getStudentsByIds(ids) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, name')
-    .in('id', ids);
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, name')
+      .in('id', ids);
+    if (error) {
+      console.error('Error fetching students:', error);
+      return [];
+    }
+    return data || [];
+  } catch (error) {
+    console.error('Error in getStudentsByIds:', error);
+    return [];
+  }
 }
 
 // ===== NEW FUNCTIONS =====
@@ -276,54 +333,70 @@ export async function markAbsent(scheduleId, studentId) {
 
 // ----- Analytics -----
 export async function getStudentProgressSummary() {
-  const { data: students, error } = await supabase
-    .from('users')
-    .select('id, name, program')
-    .eq('role', 'student');
-  if (error) throw error;
+  try {
+    const { data: students, error } = await supabase
+      .from('users')
+      .select('id, name, program')
+      .eq('role', 'student');
+    if (error) {
+      console.error('Error fetching students:', error);
+      return [];
+    }
 
-  const result = await Promise.all(students.map(async (student) => {
-    const progress = await getProgress(student.id);
-    const total = progress.cases.length;
-    const completed = progress.cases.filter(c => c.completed).length;
-    return {
-      ...student,
-      total,
-      completed,
-      percentage: total ? Math.round((completed / total) * 100) : 0
-    };
-  }));
+    const result = await Promise.all(students.map(async (student) => {
+      const progress = await getProgress(student.id);
+      const total = progress.cases.length;
+      const completed = progress.cases.filter(c => c.completed).length;
+      return {
+        ...student,
+        total,
+        completed,
+        percentage: total ? Math.round((completed / total) * 100) : 0
+      };
+    }));
 
-  // Count absences per student
-  const { data: absences, error: absError } = await supabase
-    .from('schedules')
-    .select('student_id')
-    .eq('status', 'absent');
-  if (!absError) {
-    const absenceCount = {};
-    absences.forEach(a => { absenceCount[a.student_id] = (absenceCount[a.student_id] || 0) + 1; });
-    result.forEach(s => s.absences = absenceCount[s.id] || 0);
+    // Count absences per student
+    const { data: absences, error: absError } = await supabase
+      .from('schedules')
+      .select('student_id')
+      .eq('status', 'absent');
+    if (!absError && absences) {
+      const absenceCount = {};
+      absences.forEach(a => { absenceCount[a.student_id] = (absenceCount[a.student_id] || 0) + 1; });
+      result.forEach(s => s.absences = absenceCount[s.id] || 0);
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error in getStudentProgressSummary:', error);
+    return [];
   }
-
-  return result;
 }
 
 export async function getHospitalUtilization() {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select('hospital, case_type, status');
-  if (error) throw error;
-
-  const utilization = {};
-  data.forEach(row => {
-    if (!utilization[row.hospital]) utilization[row.hospital] = {};
-    if (!utilization[row.hospital][row.case_type]) {
-      utilization[row.hospital][row.case_type] = { total: 0, completed: 0 };
+  try {
+    const { data, error } = await supabase
+      .from('schedules')
+      .select('hospital, case_type, status');
+    if (error) {
+      console.error('Error fetching hospital utilization:', error);
+      return {};
     }
-    utilization[row.hospital][row.case_type].total++;
-    if (row.status === 'completed') utilization[row.hospital][row.case_type].completed++;
-  });
-  return utilization;
+
+    const utilization = {};
+    (data || []).forEach(row => {
+      if (!utilization[row.hospital]) utilization[row.hospital] = {};
+      if (!utilization[row.hospital][row.case_type]) {
+        utilization[row.hospital][row.case_type] = { total: 0, completed: 0 };
+      }
+      utilization[row.hospital][row.case_type].total++;
+      if (row.status === 'completed') utilization[row.hospital][row.case_type].completed++;
+    });
+    return utilization;
+  } catch (error) {
+    console.error('Error in getHospitalUtilization:', error);
+    return {};
+  }
 }
 
 export { supabase };

@@ -7,6 +7,10 @@ import {
   supabase
 } from './data.js';
 import { showToast, showLoading, hideLoading } from './utils.js';
+import {
+  initFaceApi, registerFace, recognizeFace, detectAllFaces,
+  hasRegisteredFace, startWebcam, stopWebcam, drawFaceBox, clearCanvas
+} from './faceRecognition.js';
 
 // ------ Shared: render sidebar ------
 export function renderSidebar(activePage) {
@@ -446,33 +450,276 @@ export async function initCasePassport() {
   }
 }
 
-// ------ QR Attendance ------
-export function initQRAttendance() {
+// ------ Face Recognition Attendance ------
+let faceScanningInterval = null;
+let isScanningMultiple = false;
+
+export async function initFaceAttendance() {
   const user = requireAuth();
   if (!user) return;
   const role = user.role;
-  const container = document.getElementById('qrContainer');
-  let html = `<div class="qr-scanner-box">
-    <h3><i class="fas fa-qrcode"></i> QR Duty Verification</h3>
-    <p>${role === 'ci' ? 'Scan the student\'s duty QR code' : 'Show your QR code to the CI'}</p>
-    <div id="qrCodePlaceholder" class="qr-placeholder"><i class="fas fa-qrcode"></i></div>
-    <button class="action-btn" onclick="window.scanQR()"><i class="fas fa-camera"></i> ${role === 'ci' ? 'Scan QR' : 'Generate My QR'}</button>
-    <div id="scanResult" style="margin-top:16px;font-weight:500;"></div>
-  </div>`;
+  const container = document.getElementById('faceScannerContainer');
+  
+  // Update mode badge
+  document.getElementById('modeBadge').textContent = role === 'ci' ? 'CI Mode' : 'Student Mode';
+
+  // Initialize face-api
+  const initialized = await initFaceApi();
+  if (!initialized) {
+    container.innerHTML = '<div class="status-message error">Failed to load face recognition models. Please refresh the page.</div>';
+    return;
+  }
+
+  if (role === 'student') {
+    await initStudentFaceMode(user, container);
+  } else if (role === 'ci') {
+    await initCIFaceMode(user, container);
+  }
+}
+
+// Student mode: Register face and verify self
+async function initStudentFaceMode(user, container) {
+  const hasFace = hasRegisteredFace(user.id);
+  
+  let html = `
+    <h3><i class="fas fa-camera"></i> Face Registration & Verification</h3>
+    <p>Register your face for attendance tracking</p>
+    
+    <div class="video-wrapper">
+      <video id="faceVideo" autoplay muted playsinline></video>
+      <canvas id="faceCanvas"></canvas>
+    </div>
+
+    <div id="faceStatus" class="status-message info">
+      ${hasFace ? '✓ Face registered. Click "Verify Me" to test.' : 'Click "Register Face" to capture your face.'}
+    </div>
+
+    <div class="face-actions">
+      ${!hasFace ? '<button id="registerFaceBtn" class="face-btn"><i class="fas fa-camera"></i> Register Face</button>' : ''}
+      ${hasFace ? '<button id="verifyFaceBtn" class="face-btn"><i class="fas fa-check-circle"></i> Verify Me</button>' : ''}
+      ${hasFace ? '<button id="reregisterFaceBtn" class="face-btn secondary"><i class="fas fa-redo"></i> Re-register</button>' : ''}
+    </div>
+
+    <div id="recognizedResult" style="margin-top:20px;"></div>
+  `;
+  
   container.innerHTML = html;
 
-  window.scanQR = function() {
-    if (role === 'student') {
-      const qrDiv = document.getElementById('qrCodePlaceholder');
-      const studentId = user.id;
-      qrDiv.innerHTML = `<img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(studentId)}" alt="QR Code" style="width:200px;height:200px;border-radius:12px;" />`;
-      document.getElementById('scanResult').innerHTML = `<span style="color:#166534;"><i class="fas fa-check-circle"></i> QR code generated. Show to CI for verification.</span>`;
-      showToast('QR code generated successfully', 'success', 2000);
-    } else if (role === 'ci') {
-      document.getElementById('scanResult').innerHTML = `<span style="color:#166534;"><i class="fas fa-check-circle"></i> Duty verified! Time-in: ${new Date().toLocaleTimeString()}</span>`;
-      showToast('Duty verified! Time-in recorded.', 'success', 2000);
+  const video = document.getElementById('faceVideo');
+  const canvas = document.getElementById('faceCanvas');
+  
+  // Start webcam
+  const webcamStarted = await startWebcam(video);
+  if (!webcamStarted) {
+    document.getElementById('faceStatus').innerHTML = '<div class="status-message error">Failed to access webcam. Please allow camera permissions.</div>';
+    return;
+  }
+
+  // Set canvas size to match video
+  video.addEventListener('loadedmetadata', () => {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+  });
+
+  // Register face button
+  const registerBtn = document.getElementById('registerFaceBtn');
+  if (registerBtn) {
+    registerBtn.addEventListener('click', async () => {
+      registerBtn.disabled = true;
+      registerBtn.textContent = 'Capturing...';
+      
+      const result = await registerFace(user.id, user.name, video);
+      
+      if (result.success) {
+        showToast(result.message, 'success');
+        document.getElementById('faceStatus').innerHTML = '<div class="status-message success">✓ Face registered successfully! You can now verify your identity.</div>';
+        initStudentFaceMode(user, container); // Refresh UI
+      } else {
+        document.getElementById('faceStatus').innerHTML = `<div class="status-message error">${result.error}</div>`;
+        registerBtn.disabled = false;
+        registerBtn.textContent = 'Register Face';
+      }
+    });
+  }
+
+  // Verify face button
+  const verifyBtn = document.getElementById('verifyFaceBtn');
+  if (verifyBtn) {
+    verifyBtn.addEventListener('click', async () => {
+      verifyBtn.disabled = true;
+      verifyBtn.textContent = 'Verifying...';
+      
+      const result = await recognizeFace(video, 0.6);
+      
+      if (result.success && result.matches.length > 0) {
+        const match = result.matches[0];
+        if (match.userId === user.id) {
+          document.getElementById('recognizedResult').innerHTML = `
+            <div class="status-message success">
+              <strong>✓ Verified!</strong> Welcome, ${match.userName}!<br>
+              <small>Confidence: ${match.confidence}% | Time: ${new Date().toLocaleTimeString()}</small>
+            </div>
+          `;
+          showToast(`Welcome ${match.userName}! Attendance recorded.`, 'success');
+        } else {
+          document.getElementById('recognizedResult').innerHTML = `
+            <div class="status-message error">
+              <strong>✗ Face mismatch!</strong> Detected: ${match.userName}<br>
+              <small>This doesn't match your account.</small>
+            </div>
+          `;
+        }
+      } else {
+        document.getElementById('recognizedResult').innerHTML = `
+          <div class="status-message error">
+            <strong>✗ Verification failed</strong><br>
+            <small>${result.error || 'Face not recognized. Please try again.'}</small>
+          </div>
+        `;
+      }
+      
+      verifyBtn.disabled = false;
+      verifyBtn.textContent = 'Verify Me';
+    });
+  }
+
+  // Re-register button
+  const reregisterBtn = document.getElementById('reregisterFaceBtn');
+  if (reregisterBtn) {
+    reregisterBtn.addEventListener('click', () => {
+      deleteRegisteredFace(user.id);
+      initStudentFaceMode(user, container);
+    });
+  }
+}
+
+// CI mode: Scan multiple students
+async function initCIFaceMode(user, container) {
+  let html = `
+    <h3><i class="fas fa-user-md"></i> CI Face Scanner</h3>
+    <p>Scan students for attendance verification</p>
+    
+    <div class="video-wrapper">
+      <video id="faceVideo" autoplay muted playsinline></video>
+      <canvas id="faceCanvas"></canvas>
+    </div>
+
+    <div id="faceStatus" class="status-message info">
+      Click "Start Scanning" to detect students
+    </div>
+
+    <div class="face-actions">
+      <button id="startScanBtn" class="face-btn"><i class="fas fa-play"></i> Start Scanning</button>
+      <button id="stopScanBtn" class="face-btn secondary" disabled><i class="fas fa-stop"></i> Stop Scanning</button>
+    </div>
+
+    <div id="recognizedList" class="recognized-list">
+      <h3>Recognized Students</h3>
+      <div id="recognizedStudents">
+        <p style="color:#64748b; font-style:italic;">No students scanned yet</p>
+      </div>
+    </div>
+  `;
+  
+  container.innerHTML = html;
+
+  const video = document.getElementById('faceVideo');
+  const canvas = document.getElementById('faceCanvas');
+  
+  // Start webcam
+  const webcamStarted = await startWebcam(video);
+  if (!webcamStarted) {
+    document.getElementById('faceStatus').innerHTML = '<div class="status-message error">Failed to access webcam. Please allow camera permissions.</div>';
+    return;
+  }
+
+  // Set canvas size
+  video.addEventListener('loadedmetadata', () => {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+  });
+
+  // Store recognized students to avoid duplicates
+  let recognizedStudents = new Map();
+  let isScanning = false;
+
+  // Start scanning
+  document.getElementById('startScanBtn').addEventListener('click', async () => {
+    isScanning = true;
+    isScanningMultiple = true;
+    document.getElementById('startScanBtn').disabled = true;
+    document.getElementById('stopScanBtn').disabled = false;
+    document.getElementById('faceStatus').innerHTML = '<div class="scanning-indicator"><div class="spinner"></div> Scanning for faces...</div>';
+    
+    recognizedStudents.clear();
+    updateRecognizedList();
+
+    // Continuous scanning
+    faceScanningInterval = setInterval(async () => {
+      if (!isScanning) return;
+      
+      const result = await detectAllFaces(video, 0.6);
+      
+      if (result.success && result.faces.length > 0) {
+        clearCanvas(canvas);
+        
+        result.faces.forEach(faceData => {
+          const { detection, match } = faceData;
+          
+          // Draw bounding box
+          const label = match ? `${match.userName} (${match.confidence}%)` : 'Unknown';
+          const color = match ? '#00ff00' : '#ff0000';
+          drawFaceBox(canvas, detection, label, color);
+          
+          // Add to recognized list if matched
+          if (match && !recognizedStudents.has(match.userId)) {
+            recognizedStudents.set(match.userId, {
+              name: match.userName,
+              confidence: match.confidence,
+              time: new Date().toLocaleTimeString()
+            });
+            updateRecognizedList();
+            showToast(`Recognized: ${match.userName}`, 'success', 2000);
+          }
+        });
+      } else {
+        clearCanvas(canvas);
+      }
+    }, 2000); // Scan every 2 seconds
+  });
+
+  // Stop scanning
+  document.getElementById('stopScanBtn').addEventListener('click', () => {
+    isScanning = false;
+    isScanningMultiple = false;
+    if (faceScanningInterval) {
+      clearInterval(faceScanningInterval);
+      faceScanningInterval = null;
     }
-  };
+    document.getElementById('startScanBtn').disabled = false;
+    document.getElementById('stopScanBtn').disabled = true;
+    document.getElementById('faceStatus').innerHTML = '<div class="status-message info">Scanning stopped. Click "Start Scanning" to resume.</div>';
+    clearCanvas(canvas);
+  });
+
+  function updateRecognizedList() {
+    const listContainer = document.getElementById('recognizedStudents');
+    
+    if (recognizedStudents.size === 0) {
+      listContainer.innerHTML = '<p style="color:#64748b; font-style:italic;">No students scanned yet</p>';
+      return;
+    }
+
+    listContainer.innerHTML = Array.from(recognizedStudents.values()).map(student => `
+      <div class="recognized-item">
+        <div class="recognized-info">
+          <div class="recognized-name">${student.name}</div>
+          <div class="recognized-time">Time: ${student.time}</div>
+        </div>
+        <span class="recognized-confidence ${student.confidence < 70 ? 'medium' : ''}">${student.confidence}%</span>
+      </div>
+    `).join('');
+  }
 }
 
 // ------ AI Matchmaker ------
@@ -602,7 +849,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else if (path === 'case-passport.html') {
     await initCasePassport();
   } else if (path === 'qr-attendance.html') {
-    initQRAttendance();
+    await initFaceAttendance();
   } else if (path === 'ai-matchmaker.html') {
     await initAIMatchmaker();
   } else if (path === 'notifications.html') {

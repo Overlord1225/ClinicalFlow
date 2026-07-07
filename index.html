@@ -38,7 +38,60 @@
   <script src="js/utils.js" type="module"></script>
   <script src="js/data.js" type="module"></script>
   <script src="js/auth.js" type="module"></script>
-  <script src="js/utils.js" type="module"></script>
   <script src="js/main.js" type="module"></script>
+  <script type="module">
+    import { signIn } from './js/data.js';
+    import { showToast } from './js/utils.js';
+
+    // Role button click handlers
+    document.querySelectorAll('.role-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        // Remove selected class from all buttons
+        document.querySelectorAll('.role-btn').forEach(b => b.classList.remove('selected'));
+        // Add selected class to clicked button
+        btn.classList.add('selected');
+        // Fill in credentials
+        document.getElementById('emailInput').value = btn.dataset.email;
+        document.getElementById('passwordInput').value = btn.dataset.pass;
+      });
+    });
+
+    // Select first role by default
+    document.querySelector('.role-btn').classList.add('selected');
+    document.getElementById('emailInput').value = document.querySelector('.role-btn').dataset.email;
+    document.getElementById('passwordInput').value = document.querySelector('.role-btn').dataset.pass;
+
+    // Login button handler
+    document.getElementById('loginBtn').addEventListener('click', async () => {
+      const email = document.getElementById('emailInput').value;
+      const password = document.getElementById('passwordInput').value;
+      const errorEl = document.getElementById('loginError');
+
+      try {
+        const user = await signIn(email, password);
+        
+        // Redirect based on role
+        const redirects = {
+          'student': 'student-dashboard.html',
+          'scheduler': 'scheduler-dashboard.html',
+          'ci': 'ci-dashboard.html',
+          'admin': 'admin.html'
+        };
+        
+        window.location.href = redirects[user.role] || 'student-dashboard.html';
+      } catch (err) {
+        errorEl.textContent = err.message || 'Login failed. Please try again.';
+        errorEl.style.display = 'block';
+        showToast('Login failed: ' + err.message, 'error');
+      }
+    });
+
+    // Allow Enter key to submit
+    document.getElementById('passwordInput').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('loginBtn').click();
+      }
+    });
+  </script>
 </body>
 </html>
