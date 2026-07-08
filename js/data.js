@@ -353,12 +353,20 @@ export async function claimSlot(slotId, studentId) {
     .eq('id', slotId);
   if (deleteError) throw deleteError;
 
-  // 5. Notify the student
+  // 5. Get the hospital name for the notification
+  const { data: hospitalData, error: hospError } = await supabase
+    .from('hospitals')
+    .select('name')
+    .eq('id', slot.hospital_id)
+    .single();
+  const hospitalName = !hospError && hospitalData ? hospitalData.name : 'Unknown';
+  
+  // 6. Notify the student
   await supabase
     .from('notifications')
     .insert([{
       user_id: studentId,
-      message: `You have claimed a duty slot: ${slot.case_type} at ${slot.hospital} on ${slot.date}`,
+      message: `You have claimed a duty slot: ${slot.case_type} at ${hospitalName} on ${slot.date}`,
       type: 'slot_claimed',
     }]);
 
@@ -612,13 +620,13 @@ export async function markAttendanceManually(scheduleId, studentId, status, reas
     if (error) throw error;
   }
 
-  // If absent, also create a make‑up slot (optional, but we already have markAbsent)
-  // For consistency, we can call markAbsent if status is 'absent'
+  // If absent, also create a make‑up slot (markAbsent already sends its own notification)
   if (status === 'absent') {
     await markAbsent(scheduleId, studentId);
+    return true; // markAbsent already sends a notification, skip the duplicate
   }
 
-  // Notify student
+  // Notify student (only for non-absent statuses)
   const statusLabel = { on_time: 'Present', late: 'Late', absent: 'Absent' }[status];
   await supabase
     .from('notifications')
@@ -784,6 +792,7 @@ export async function getHospitalUtilization() {
     .from('schedules')
     .select(`
       status,
+      case_type,
       hospital:hospital_id (name)
     `);
   if (error) throw error;
@@ -791,14 +800,14 @@ export async function getHospitalUtilization() {
   const utilization = {};
   data.forEach(row => {
     const hospitalName = row.hospital?.name || 'Unknown';
+    const caseType = row.case_type || 'Total';
     if (!utilization[hospitalName]) utilization[hospitalName] = {};
-    // We don't have case_type from hospital, but we have status
-    if (!utilization[hospitalName]['Total']) {
-      utilization[hospitalName]['Total'] = { total: 0, completed: 0 };
+    if (!utilization[hospitalName][caseType]) {
+      utilization[hospitalName][caseType] = { total: 0, completed: 0 };
     }
-    utilization[hospitalName]['Total'].total++;
+    utilization[hospitalName][caseType].total++;
     if (row.status === 'completed') {
-      utilization[hospitalName]['Total'].completed++;
+      utilization[hospitalName][caseType].completed++;
     }
   });
   return utilization;
@@ -1001,8 +1010,8 @@ export async function computeRecommendationScore(studentId, slotId) {
 
   // d) Attendance rate > 95% (simplified: check absences count)
   const absences = attendanceRecords.filter(a => a.status === 'absent').length;
-  const totalAtt = attendanceRecords.length || 1; // avoid division by zero
-  const attendanceRate = (totalAtt - absences) / totalAtt;
+  const totalAtt = attendanceRecords.length;
+  const attendanceRate = totalAtt > 0 ? (totalAtt - absences) / totalAtt : 1;
   if (attendanceRate > 0.95) score += (weightMap['Attendance Rate Above 95%'] || 20);
 
   // e) Lower completed duty hours (simplified: count completed schedules)
@@ -1015,9 +1024,12 @@ export async function computeRecommendationScore(studentId, slotId) {
   const hasMakeup = schedules.some(s => s.status === 'absent');
   if (hasMakeup) score += (weightMap['High Priority Make-up Duty'] || 10);
 
-  // g) Penalties
-  if (absences > 5) score += (weightMap['More than 5 Late Records'] || -20);
-  if (absences > 3) score += (weightMap['More than 3 Absences'] || -30);
+  // g) Penalties (mutually exclusive ranges)
+  if (absences > 5) {
+    score += (weightMap['More than 5 Late Records'] || -20);
+  } else if (absences > 3) {
+    score += (weightMap['More than 3 Absences'] || -30);
+  }
 
   // h) Already completed required case? We check if case is completed already.
   const alreadyCompleted = progress.cases.some(c => c.status === 'complete' && c.name === slot.case_type);

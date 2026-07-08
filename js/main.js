@@ -11,6 +11,9 @@ import {
   ensureAdminAccount,
   signIn,
   createUserByAdmin,
+  getRecommendationsForSlot,
+  getCaseLibrary,
+  getAllUsers,
   supabase
 } from './data.js';
 import { showToast, showLoading, hideLoading } from './utils.js';
@@ -602,13 +605,13 @@ export async function initAdminAnalytics() {
     nextWeek.setDate(today.getDate() + 7);
     const { data: upcoming, error } = await supabase
       .from('schedules')
-      .select('*, users(name)')
+      .select('*, users(name), hospital:hospital_id (name)')
       .gte('date', today.toISOString().split('T')[0])
       .lte('date', nextWeek.toISOString().split('T')[0])
       .eq('status', 'scheduled');
     const upcomingContainer = document.getElementById('upcomingDuties');
     upcomingContainer.innerHTML = (upcoming && upcoming.length) ? upcoming.map(s => `
-      <tr><td>${s.users?.name || 'Unknown'}</td><td>${s.date}</td><td>${s.hospital}</td><td>${s.case_type}</td></tr>
+      <tr><td>${s.users?.name || 'Unknown'}</td><td>${s.date}</td><td>${s.hospital?.name || 'Unknown'}</td><td>${s.case_type}</td></tr>
     `).join('') : '<tr><td colspan="4">No upcoming duties.</td></tr>';
 
     hideLoading('lackingCases');
@@ -794,9 +797,9 @@ export async function initAbsenceMarking() {
           <td>${s.case_type || 'N/A'}</td>
           <td><span class="status-badge ${currentStatus}">${statusDisplay}</span></td>
           <td>
-            <button class="ci-action present-btn" data-status="on_time">Present</button>
-            <button class="ci-action late-btn" data-status="late">Late</button>
-            <button class="ci-action absent-btn" data-status="absent">Absent</button>
+            <button class="ci-action present-btn" data-status="on_time" data-original="Present">Present</button>
+            <button class="ci-action late-btn" data-status="late" data-original="Late">Late</button>
+            <button class="ci-action absent-btn" data-status="absent" data-original="Absent">Absent</button>
           </td>
           <td>
             <input type="text" class="reason-input" placeholder="Reason (optional)" style="width:100px; padding:4px; border-radius:6px; border:1px solid #e9edf2;">
@@ -824,7 +827,7 @@ export async function initAbsenceMarking() {
           initAbsenceMarking();
         } catch (err) {
           btn.disabled = false;
-          btn.textContent = btn.textContent.replace('Saving...', btn.dataset.status.charAt(0).toUpperCase() + btn.dataset.status.slice(1));
+          btn.textContent = btn.dataset.original || 'Mark';
           showToast('Error: ' + err.message, 'error');
         }
       });
@@ -1063,7 +1066,7 @@ export async function initAIMatchmaker() {
                   <span class="score-badge">Score: ${rec.score}</span>
                   ${rec.details ? `<div class="explanation"><i class="fas fa-info-circle"></i> ${generateExplanation(rec.details)}</div>` : ''}
                 </div>
-                <button class="assign-btn" data-slot-id="${slotId}" data-student-id="${rec.studentId}">Assign</button>
+                <button class="assign-btn" data-slot-id="${slotId}" data-student-id="${rec.studentId}" data-student-name="${rec.studentName}">Assign</button>
               </div>
             `).join('')}
           </div>
@@ -1071,6 +1074,7 @@ export async function initAIMatchmaker() {
         content.innerHTML = html2;
 
         content.querySelectorAll('.assign-btn').forEach(btn => {
+          const assignedName = btn.dataset.studentName;
           btn.addEventListener('click', async () => {
             const slotId = btn.dataset.slotId;
             const studentId = btn.dataset.studentId;
@@ -1078,7 +1082,7 @@ export async function initAIMatchmaker() {
               btn.disabled = true;
               btn.textContent = 'Assigning...';
               await claimSlot(slotId, studentId);
-              showToast(`Assigned ${rec.studentName} to duty.`, 'success');
+              showToast(`Assigned ${assignedName} to duty.`, 'success');
               initAIMatchmaker();
             } catch (err) {
               btn.disabled = false;
@@ -1515,6 +1519,7 @@ export async function initAdminManagement() {
   loadHospitalSelects();
 
   document.getElementById('saveHospitalBtn').addEventListener('click', async () => {
+    const editId = document.getElementById('saveHospitalBtn').dataset.editId;
     const name = document.getElementById('hospitalName').value.trim();
     const address = document.getElementById('hospitalAddress').value.trim();
     const lat = parseFloat(document.getElementById('hospitalLat').value);
@@ -1525,9 +1530,15 @@ export async function initAdminManagement() {
       return;
     }
     try {
-      await createHospital({ name, address, latitude: lat, longitude: lng, attendance_radius: radius });
-      showToast('Hospital added.', 'success');
+      if (editId) {
+        await updateHospital(editId, { name, address, latitude: lat, longitude: lng, attendance_radius: radius });
+        showToast('Hospital updated.', 'success');
+      } else {
+        await createHospital({ name, address, latitude: lat, longitude: lng, attendance_radius: radius });
+        showToast('Hospital added.', 'success');
+      }
       document.getElementById('hospitalForm').reset();
+      document.getElementById('cancelHospitalBtn').click();
       loadHospitals();
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
@@ -1542,6 +1553,7 @@ export async function initAdminManagement() {
   });
 
   document.getElementById('saveDeptBtn').addEventListener('click', async () => {
+    const editId = document.getElementById('saveDeptBtn').dataset.editId;
     const name = document.getElementById('deptName').value.trim();
     const hospitalId = document.getElementById('deptHospital').value;
     if (!name || !hospitalId) {
@@ -1549,9 +1561,15 @@ export async function initAdminManagement() {
       return;
     }
     try {
-      await createDepartment({ name, hospital_id: hospitalId });
-      showToast('Department added.', 'success');
+      if (editId) {
+        await updateDepartment(editId, { name, hospital_id: hospitalId });
+        showToast('Department updated.', 'success');
+      } else {
+        await createDepartment({ name, hospital_id: hospitalId });
+        showToast('Department added.', 'success');
+      }
       document.getElementById('departmentForm').reset();
+      document.getElementById('cancelDeptBtn').click();
       loadDepartments();
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
@@ -1740,27 +1758,6 @@ window.editHospital = async function(id) {
   document.getElementById('saveHospitalBtn').textContent = 'Update Hospital';
   document.getElementById('saveHospitalBtn').dataset.editId = id;
   document.getElementById('cancelHospitalBtn').style.display = 'inline-block';
-  document.getElementById('saveHospitalBtn').onclick = async function() {
-    const editId = this.dataset.editId;
-    const name = document.getElementById('hospitalName').value.trim();
-    const address = document.getElementById('hospitalAddress').value.trim();
-    const lat = parseFloat(document.getElementById('hospitalLat').value);
-    const lng = parseFloat(document.getElementById('hospitalLng').value);
-    const radius = parseInt(document.getElementById('hospitalRadius').value) || 100;
-    if (!name || isNaN(lat) || isNaN(lng)) {
-      showToast('Name, latitude, and longitude are required.', 'warning');
-      return;
-    }
-    try {
-      await updateHospital(editId, { name, address, latitude: lat, longitude: lng, attendance_radius: radius });
-      showToast('Hospital updated.', 'success');
-      document.getElementById('hospitalForm').reset();
-      document.getElementById('cancelHospitalBtn').click();
-      loadHospitals();
-    } catch (err) {
-      showToast('Error: ' + err.message, 'error');
-    }
-  };
 };
 
 window.deleteHospitalItem = async function(id) {
