@@ -46,7 +46,6 @@ export async function ensureAdminAccount() {
       authUser = data.user;
       passwordCorrect = true;
     } else if (error && error.message.includes('Invalid login credentials')) {
-      // Auth user exists but password is wrong – we'll need to recreate
       console.warn('Admin Auth user exists but password is incorrect. Will recreate.');
     }
   } catch (e) {
@@ -111,15 +110,12 @@ export async function ensureAdminAccount() {
       }
     });
     if (signUpError) {
-      // If the error is that the user already exists (shouldn't happen after deletion)
-      // but just in case, we can try to sign in again
       if (signUpError.message.includes('already registered')) {
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
           email: adminEmail,
           password: adminPassword,
         });
         if (!signInError && signInData.user) {
-          // Insert the row manually (if trigger didn't)
           await supabase.from('users').insert([{
             id: signInData.user.id,
             email: adminEmail,
@@ -158,6 +154,7 @@ export async function logout() {
   window.location.href = 'index.html';
 }
 
+// ---- Student helpers ----
 export async function getStudent(id) {
   const { data, error } = await supabase
     .from('users')
@@ -178,21 +175,18 @@ export async function getStudent(id) {
 }
 
 export async function getProgress(studentId) {
-  // Get all required cases from the library
   const { data: library, error: libError } = await supabase
     .from('case_library')
     .select('id, name, required_min, category');
   if (libError) throw libError;
 
-  // Get student's verified progress
   const { data: progress, error: progError } = await supabase
     .from('case_progress')
     .select('case_library_id, status, verified_by')
     .eq('student_id', studentId)
-    .eq('status', 'verified'); // we only count verified completions
+    .eq('status', 'verified');
   if (progError) throw progError;
 
-  // Build a map of case_library_id -> count of verified completions
   const completionCount = {};
   progress.forEach(p => {
     completionCount[p.case_library_id] = (completionCount[p.case_library_id] || 0) + 1;
@@ -204,96 +198,13 @@ export async function getProgress(studentId) {
     category: lib.category,
     required: lib.required_min,
     completed: completionCount[lib.id] || 0,
-    // status: completed >= required ? 'complete' : 'pending'
     status: (completionCount[lib.id] || 0) >= lib.required_min ? 'complete' : 'pending',
   }));
 
   return { studentId, cases };
 }
 
-export async function getSchedules(studentId) {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select(`
-      id,
-      date,
-      start_time,
-      end_time,
-      status,
-      case_type,
-      hospital:hospital_id (name),
-      department:department_id (name),
-      ci:ci_id (name)
-    `)
-    .eq('student_id', studentId)
-    .order('date', { ascending: true });
-  if (error) throw error;
-
-  // Flatten the nested objects
-  return data.map(s => ({
-    ...s,
-    hospital: s.hospital?.name || 'Unknown',
-    department: s.department?.name || 'Unknown',
-    ciName: s.ci?.name || 'Unknown',
-  }));
-}
-
-export async function getAllSchedules() {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select(`
-      id,
-      date,
-      start_time,
-      end_time,
-      status,
-      case_type,
-      student:student_id (name),
-      hospital:hospital_id (name),
-      department:department_id (name),
-      ci:ci_id (name)
-    `)
-    .order('date', { ascending: true });
-  if (error) throw error;
-
-  return data.map(s => ({
-    ...s,
-    studentName: s.student?.name || 'Unknown',
-    hospital: s.hospital?.name || 'Unknown',
-    department: s.department?.name || 'Unknown',
-    ciName: s.ci?.name || 'Unknown',
-  }));
-  try {
-    const { data, error } = await supabase
-      .from('required_cases')
-      .select(`
-        id,
-        name,
-        case_progress!left(completed, verified_by)
-      `)
-      .eq('case_progress.student_id', studentId);
-
-    if (error) {
-      console.error('Error fetching progress:', error);
-      return { studentId, cases: [] };
-    }
-    
-    if (!data || data.length === 0) {
-      return { studentId, cases: [] };
-    }
-    
-    const cases = data.map(c => ({
-      name: c.name,
-      completed: c.case_progress?.[0]?.completed || false,
-      verifiedBy: c.case_progress?.[0]?.verified_by || null
-    }));
-    return { studentId, cases };
-  } catch (error) {
-    console.error('Error in getProgress:', error);
-    return { studentId, cases: [] };
-  }
-}
-
+// ---- Schedules ----
 export async function getSchedules(studentId) {
   try {
     const { data, error } = await supabase
@@ -315,19 +226,27 @@ export async function getAllSchedules() {
   try {
     const { data, error } = await supabase
       .from('schedules')
-      .select('*, users(name)');
+      .select(`
+        *,
+        student:users!student_id (name),
+        ci:users!ci_id (name)
+      `);
     if (error) {
       console.error('Error fetching all schedules:', error);
       return [];
     }
-    return (data || []).map(s => ({ ...s, studentName: s.users?.name }));
+    return (data || []).map(s => ({ 
+      ...s, 
+      studentName: s.student?.name || 'Unknown',
+      ciName: s.ci?.name || 'Unknown'
+    }));
   } catch (error) {
     console.error('Error in getAllSchedules:', error);
     return [];
   }
-
 }
 
+// ---- Notifications ----
 export async function getNotifications(userId) {
   try {
     const { data, error } = await supabase
@@ -358,45 +277,7 @@ export async function markRead(notifId) {
   }
 }
 
-// ---- Available Slots (Opportunity Board) ----
-export async function getOpenSlots() {
-  try {
-    const { data, error } = await supabase
-      .from('open_slots')
-      .select('*')
-      .order('date');
-    if (error) {
-      console.error('Error fetching open slots:', error);
-      return [];
-    }
-    return data || [];
-  } catch (error) {
-    console.error('Error in getOpenSlots:', error);
-    return [];
-  }
-}
-
-export async function getStudentsByIds(ids) {
-  try {
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, name')
-      .in('id', ids);
-    if (error) {
-      console.error('Error fetching students:', error);
-      return [];
-    }
-    return data || [];
-  } catch (error) {
-    console.error('Error in getStudentsByIds:', error);
-    return [];
-  }
-}
-
-// ===== NEW FUNCTIONS =====
-
-// ----- Opportunity Board -----
-
+// ---- Opportunity Board ----
 export async function getAvailableSlots() {
   const { data, error } = await supabase
     .from('open_slots')
@@ -417,14 +298,29 @@ export async function getAvailableSlots() {
   }));
 }
 
-// Keep old function name for compatibility
+// Alias for compatibility
 export async function getOpenSlots() {
   return getAvailableSlots();
 }
 
-// Claim a slot (instant approval for now)
+export async function getStudentsByIds(ids) {
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, name')
+      .in('id', ids);
+    if (error) {
+      console.error('Error fetching students:', error);
+      return [];
+    }
+    return data || [];
+  } catch (error) {
+    console.error('Error in getStudentsByIds:', error);
+    return [];
+  }
+}
+
 export async function claimSlot(slotId, studentId) {
-  // 1. Fetch the slot details
   const { data: slot, error: fetchError } = await supabase
     .from('open_slots')
     .select('*')
@@ -433,7 +329,6 @@ export async function claimSlot(slotId, studentId) {
   if (fetchError) throw fetchError;
   if (!slot) throw new Error('Slot not found');
 
-  // 2. Create a schedule entry
   const { error: insertError } = await supabase
     .from('schedules')
     .insert([{
@@ -449,7 +344,6 @@ export async function claimSlot(slotId, studentId) {
     }]);
   if (insertError) throw insertError;
 
-  // 3. Record the application (approved immediately)
   const { error: appError } = await supabase
     .from('slot_applications')
     .insert([{
@@ -459,14 +353,12 @@ export async function claimSlot(slotId, studentId) {
     }]);
   if (appError) throw appError;
 
-  // 4. Remove the open slot
   const { error: deleteError } = await supabase
     .from('open_slots')
     .delete()
     .eq('id', slotId);
   if (deleteError) throw deleteError;
 
-  // 5. Get the hospital name for the notification
   const { data: hospitalData, error: hospError } = await supabase
     .from('hospitals')
     .select('name')
@@ -474,7 +366,6 @@ export async function claimSlot(slotId, studentId) {
     .single();
   const hospitalName = !hospError && hospitalData ? hospitalData.name : 'Unknown';
   
-  // 6. Notify the student
   await supabase
     .from('notifications')
     .insert([{
@@ -488,7 +379,6 @@ export async function claimSlot(slotId, studentId) {
 
 // ---- Announcements ----
 export async function sendAnnouncement(message, senderId, targetRole = 'student') {
-  // 1. Insert into announcements table
   const { error: annError } = await supabase
     .from('announcements')
     .insert([{
@@ -499,7 +389,6 @@ export async function sendAnnouncement(message, senderId, targetRole = 'student'
     }]);
   if (annError) throw annError;
 
-  // 2. Also create notifications for all targeted students
   const { data: users, error } = await supabase
     .from('users')
     .select('id')
@@ -525,14 +414,12 @@ export async function sendAnnouncement(message, senderId, targetRole = 'student'
 
 // ---- Absence Management ----
 export async function markAbsent(scheduleId, studentId) {
-  // 1. Update schedule status
   const { error: updateError } = await supabase
     .from('schedules')
     .update({ status: 'absent' })
     .eq('id', scheduleId);
   if (updateError) throw updateError;
 
-  // 2. Fetch schedule details to create a make-up slot
   const { data: schedule, error: fetchError } = await supabase
     .from('schedules')
     .select('*')
@@ -540,14 +427,13 @@ export async function markAbsent(scheduleId, studentId) {
     .single();
   if (fetchError) throw fetchError;
 
-  // 3. Create a make-up open slot
   const { error: insertError } = await supabase
     .from('open_slots')
     .insert([{
       hospital_id: schedule.hospital_id,
       department_id: schedule.department_id,
       ci_id: schedule.ci_id,
-      date: schedule.date, // could add +7 days in real app
+      date: schedule.date,
       start_time: schedule.start_time,
       end_time: schedule.end_time,
       case_type: schedule.case_type,
@@ -556,7 +442,6 @@ export async function markAbsent(scheduleId, studentId) {
     }]);
   if (insertError) throw insertError;
 
-  // 4. Notify student
   await supabase
     .from('notifications')
     .insert([{
@@ -622,18 +507,17 @@ export async function getCurrentPosition() {
 }
 
 function distance(lat1, lng1, lat2, lng2) {
-  const R = 6371000; // meters
+  const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
   const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
             Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
             Math.sin(dLng/2) * Math.sin(dLng/2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
 
 export async function verifyGPS(studentId, scheduleId) {
-  // Get schedule with hospital coordinates
   const { data: schedule, error } = await supabase
     .from('schedules')
     .select('hospital_id, hospital:hospital_id (latitude, longitude, attendance_radius)')
@@ -683,47 +567,54 @@ export async function updateAttendance(scheduleId, studentId, updates) {
   if (error) throw error;
 }
 
+export async function getAttendanceForSchedule(scheduleId, studentId) {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('schedule_id', scheduleId)
+    .eq('student_id', studentId)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+export async function getAttendanceForStudent(studentId) {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('*')
+    .eq('student_id', studentId);
+  if (error) throw error;
+  return data || [];
+}
+
 // ---- Manual Attendance (CI override) ----
 export async function markAttendanceManually(scheduleId, studentId, status, reason = null) {
-  // Check if attendance record exists
   const existing = await getAttendanceForSchedule(scheduleId, studentId);
-  
   const now = new Date().toISOString();
-  const data = {
-    schedule_id: scheduleId,
-    student_id: studentId,
-    status: status, // 'on_time', 'late', 'absent'
-    verification_method: 'manual',
-    verified_by: (await getCurrentUser()).id,
-    updated_at: now,
-  };
+  const currentUser = await getCurrentUser();
 
   if (existing) {
-    // Update existing record
     const updates = {
       status: status,
       verification_method: 'manual',
-      verified_by: (await getCurrentUser()).id,
+      verified_by: currentUser?.id || null,
       updated_at: now,
     };
-    // If marking present or late, set time_in if not already set
     if (status !== 'absent' && !existing.time_in) {
       updates.time_in = now;
     }
-    // If marking absent, we might clear time_in/out? Leave as is.
     const { error } = await supabase
       .from('attendance')
       .update(updates)
       .eq('id', existing.id);
     if (error) throw error;
   } else {
-    // Create new record
     const insertData = {
       schedule_id: scheduleId,
       student_id: studentId,
       status: status,
       verification_method: 'manual',
-      verified_by: (await getCurrentUser()).id,
+      verified_by: currentUser?.id || null,
       time_in: status !== 'absent' ? now : null,
       time_out: null,
     };
@@ -733,13 +624,11 @@ export async function markAttendanceManually(scheduleId, studentId, status, reas
     if (error) throw error;
   }
 
-  // If absent, also create a make‑up slot (markAbsent already sends its own notification)
   if (status === 'absent') {
     await markAbsent(scheduleId, studentId);
-    return true; // markAbsent already sends a notification, skip the duplicate
+    return true;
   }
 
-  // Notify student (only for non-absent statuses)
   const statusLabel = { on_time: 'Present', late: 'Late', absent: 'Absent' }[status];
   await supabase
     .from('notifications')
@@ -789,9 +678,6 @@ export async function createSchedule(scheduleData) {
     .from('schedules')
     .insert([scheduleData]);
   if (error) throw error;
-  
-  // Notify student and CI (optional, can be done here or in main)
-  // For simplicity, we'll just create the schedule.
   return true;
 }
 
@@ -801,7 +687,6 @@ export async function updateSchedule(scheduleId, updates) {
     .update(updates)
     .eq('id', scheduleId);
   if (error) throw error;
-  // Optionally notify affected parties
 }
 
 export async function deleteSchedule(scheduleId) {
@@ -812,7 +697,7 @@ export async function deleteSchedule(scheduleId) {
   if (error) throw error;
 }
 
-// ---- Admin user creation (already have createUserByAdmin?) ----
+// ---- Admin user creation ----
 export async function createUserByAdmin(email, password, role, name, program) {
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -823,155 +708,6 @@ export async function createUserByAdmin(email, password, role, name, program) {
   });
   if (error) throw error;
   return data.user;
-}
-
-export async function getAttendanceForSchedule(scheduleId, studentId) {
-  const { data, error } = await supabase
-    .from('attendance')
-    .select('*')
-    .eq('schedule_id', scheduleId)
-    .eq('student_id', studentId)
-    .maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-// ---- Analytics ----
-export async function getStudentProgressSummary() {
-  // Get all students
-  const { data: students, error } = await supabase
-    .from('users')
-    .select('id, name, program')
-    .eq('role', 'student');
-  if (error) throw error;
-
-  // Get all case library items to know required counts
-  const { data: library, error: libError } = await supabase
-    .from('case_library')
-    .select('id, required_min');
-  if (libError) throw libError;
-
-  // Build a map of case_id -> required count
-  const requiredMap = {};
-  library.forEach(l => { requiredMap[l.id] = l.required_min; });
-
-  // Get all verified case progress
-  const { data: progress, error: progError } = await supabase
-    .from('case_progress')
-    .select('student_id, case_library_id')
-    .eq('status', 'verified');
-  if (progError) throw progError;
-
-  // Count completions per student per case
-  const completionMap = {};
-  progress.forEach(p => {
-    const key = `${p.student_id}-${p.case_library_id}`;
-    completionMap[key] = (completionMap[key] || 0) + 1;
-  });
-
-  // Compute summary per student
-  const result = students.map(student => {
-    let total = 0;
-    let completed = 0;
-    Object.keys(requiredMap).forEach(caseId => {
-      total += requiredMap[caseId];
-      const key = `${student.id}-${caseId}`;
-      completed += Math.min(completionMap[key] || 0, requiredMap[caseId]);
-    });
-    return {
-      ...student,
-      total,
-      completed,
-      percentage: total ? Math.round((completed / total) * 100) : 0,
-    };
-  });
-  try {
-    const { data: students, error } = await supabase
-      .from('users')
-      .select('id, name, program')
-      .eq('role', 'student');
-    if (error) {
-      console.error('Error fetching students:', error);
-      return [];
-    }
-
-    const result = await Promise.all(students.map(async (student) => {
-      const progress = await getProgress(student.id);
-      const total = progress.cases.length;
-      const completed = progress.cases.filter(c => c.completed).length;
-      return {
-        ...student,
-        total,
-        completed,
-        percentage: total ? Math.round((completed / total) * 100) : 0
-      };
-    }));
-
-    // Count absences per student
-    const { data: absences, error: absError } = await supabase
-      .from('schedules')
-      .select('student_id')
-      .eq('status', 'absent');
-    if (!absError && absences) {
-      const absenceCount = {};
-      absences.forEach(a => { absenceCount[a.student_id] = (absenceCount[a.student_id] || 0) + 1; });
-      result.forEach(s => s.absences = absenceCount[s.id] || 0);
-    }
-
-    return result;
-  } catch (error) {
-    console.error('Error in getStudentProgressSummary:', error);
-    return [];
-  }
-}
-
-export async function getHospitalUtilization() {
-  const { data, error } = await supabase
-    .from('schedules')
-    .select(`
-      status,
-      case_type,
-      hospital:hospital_id (name)
-    `);
-  if (error) throw error;
-
-  const utilization = {};
-  data.forEach(row => {
-    const hospitalName = row.hospital?.name || 'Unknown';
-    const caseType = row.case_type || 'Total';
-    if (!utilization[hospitalName]) utilization[hospitalName] = {};
-    if (!utilization[hospitalName][caseType]) {
-      utilization[hospitalName][caseType] = { total: 0, completed: 0 };
-    }
-    utilization[hospitalName][caseType].total++;
-    if (row.status === 'completed') {
-      utilization[hospitalName][caseType].completed++;
-    }
-  });
-  return utilization;
-  try {
-    const { data, error } = await supabase
-      .from('schedules')
-      .select('hospital, case_type, status');
-    if (error) {
-      console.error('Error fetching hospital utilization:', error);
-      return {};
-    }
-
-    const utilization = {};
-    (data || []).forEach(row => {
-      if (!utilization[row.hospital]) utilization[row.hospital] = {};
-      if (!utilization[row.hospital][row.case_type]) {
-        utilization[row.hospital][row.case_type] = { total: 0, completed: 0 };
-      }
-      utilization[row.hospital][row.case_type].total++;
-      if (row.status === 'completed') utilization[row.hospital][row.case_type].completed++;
-    });
-    return utilization;
-  } catch (error) {
-    console.error('Error in getHospitalUtilization:', error);
-    return {};
-  }
 }
 
 // ---- Admin Management ----
@@ -1001,7 +737,6 @@ export async function updateHospital(id, updates) {
 }
 
 export async function deleteHospital(id) {
-  // Also delete linked departments? Better to cascade or handle manually.
   const { error } = await supabase
     .from('hospitals')
     .delete()
@@ -1068,7 +803,6 @@ export async function updateCase(id, updates) {
 }
 
 export async function deleteCase(id) {
-  // Check if any case_progress references this case
   const { count, error: countError } = await supabase
     .from('case_progress')
     .select('id', { count: 'exact', head: true })
@@ -1094,11 +828,7 @@ export async function getAllUsers() {
   return data;
 }
 
-
-
 export async function deleteUser(id) {
-  // Delete from auth? That requires admin API. For simplicity, we'll just deactivate by removing from users table?
-  // Better: soft delete or mark inactive. We'll remove from users (cascade will remove students/ci_profiles).
   const { error } = await supabase
     .from('users')
     .delete()
@@ -1112,6 +842,94 @@ export async function updateUser(id, updates) {
     .update(updates)
     .eq('id', id);
   if (error) throw error;
+}
+
+// ---- Student Progress Summary (Aggregated) ----
+export async function getStudentProgressSummary() {
+  // Get all students
+  const { data: students, error } = await supabase
+    .from('users')
+    .select('id, name, program')
+    .eq('role', 'student');
+  if (error) throw error;
+
+  // Get all case library items to know required counts
+  const { data: library, error: libError } = await supabase
+    .from('case_library')
+    .select('id, required_min');
+  if (libError) throw libError;
+
+  const requiredMap = {};
+  library.forEach(l => { requiredMap[l.id] = l.required_min; });
+
+  // Get all verified case progress
+  const { data: progress, error: progError } = await supabase
+    .from('case_progress')
+    .select('student_id, case_library_id')
+    .eq('status', 'verified');
+  if (progError) throw progError;
+
+  const completionMap = {};
+  progress.forEach(p => {
+    const key = `${p.student_id}-${p.case_library_id}`;
+    completionMap[key] = (completionMap[key] || 0) + 1;
+  });
+
+  const result = students.map(student => {
+    let total = 0;
+    let completed = 0;
+    Object.keys(requiredMap).forEach(caseId => {
+      total += requiredMap[caseId];
+      const key = `${student.id}-${caseId}`;
+      completed += Math.min(completionMap[key] || 0, requiredMap[caseId]);
+    });
+    return {
+      ...student,
+      total,
+      completed,
+      percentage: total ? Math.round((completed / total) * 100) : 0,
+    };
+  });
+
+  // Count absences per student
+  const { data: absences, error: absError } = await supabase
+    .from('schedules')
+    .select('student_id')
+    .eq('status', 'absent');
+  if (!absError && absences) {
+    const absenceCount = {};
+    absences.forEach(a => { absenceCount[a.student_id] = (absenceCount[a.student_id] || 0) + 1; });
+    result.forEach(s => s.absences = absenceCount[s.id] || 0);
+  }
+
+  return result;
+}
+
+// ---- Hospital Utilization ----
+export async function getHospitalUtilization() {
+  const { data, error } = await supabase
+    .from('schedules')
+    .select(`
+      status,
+      case_type,
+      hospital:hospital_id (name)
+    `);
+  if (error) throw error;
+
+  const utilization = {};
+  data.forEach(row => {
+    const hospitalName = row.hospital?.name || 'Unknown';
+    const caseType = row.case_type || 'Total';
+    if (!utilization[hospitalName]) utilization[hospitalName] = {};
+    if (!utilization[hospitalName][caseType]) {
+      utilization[hospitalName][caseType] = { total: 0, completed: 0 };
+    }
+    utilization[hospitalName][caseType].total++;
+    if (row.status === 'completed') {
+      utilization[hospitalName][caseType].completed++;
+    }
+  });
+  return utilization;
 }
 
 // ---- Recommendation Engine ----
@@ -1134,7 +952,6 @@ export async function updateRecommendationWeight(criterion, weight) {
 
 // Compute recommendation score for a student for a given slot
 export async function computeRecommendationScore(studentId, slotId) {
-  // 1. Get the slot details (hospital, department, case_type, date)
   const { data: slot, error: slotError } = await supabase
     .from('open_slots')
     .select('*, hospital:hospital_id (id), department:department_id (id)')
@@ -1142,61 +959,46 @@ export async function computeRecommendationScore(studentId, slotId) {
     .single();
   if (slotError) throw slotError;
 
-  // 2. Get student data: progress, attendance, schedules
   const progress = await getProgress(studentId);
   const student = await getStudent(studentId);
   const schedules = await getSchedules(studentId);
-  const notifs = await getNotifications(studentId); // for attendance (simplified)
-  const attendanceRecords = await getAttendanceForStudent(studentId); // we need to add this function
+  const attendanceRecords = await getAttendanceForStudent(studentId);
 
-  // 3. Get weights
   const weights = await getRecommendationWeights();
   const weightMap = {};
   weights.forEach(w => weightMap[w.criterion] = w.weight);
 
-  // 4. Compute score
   let score = 0;
 
-  // a) Needs required clinical case
   const caseMatch = progress.cases.some(c => c.status === 'pending' && c.name === slot.case_type);
   if (caseMatch) score += (weightMap['Needs Required Clinical Case'] || 40);
 
-  // b) No academic conflict (simplified: assume no class conflicts for now)
-  // We don't have academic schedules, so we skip or add default
-  score += (weightMap['No Academic Class Conflict'] || 30); // assume true
+  score += (weightMap['No Academic Class Conflict'] || 30);
 
-  // c) No duty conflict – check if student already has a schedule on same date
   const hasConflict = schedules.some(s => s.date === slot.date && s.status === 'scheduled');
   if (!hasConflict) score += (weightMap['No Existing Duty Conflict'] || 25);
 
-  // d) Attendance rate > 95% (simplified: check absences count)
   const absences = attendanceRecords.filter(a => a.status === 'absent').length;
   const totalAtt = attendanceRecords.length;
   const attendanceRate = totalAtt > 0 ? (totalAtt - absences) / totalAtt : 1;
   if (attendanceRate > 0.95) score += (weightMap['Attendance Rate Above 95%'] || 20);
 
-  // e) Lower completed duty hours (simplified: count completed schedules)
   const completedCount = schedules.filter(s => s.status === 'completed').length;
-  // Normalize: assume max 10 completed duties -> we want lower hours to get bonus
-  const hoursPenalty = Math.min(completedCount, 10) / 10; // 0..1
+  const hoursPenalty = Math.min(completedCount, 10) / 10;
   score += (1 - hoursPenalty) * (weightMap['Lower Completed Duty Hours'] || 15);
 
-  // f) High priority make-up duty – check if student has any absent schedule
   const hasMakeup = schedules.some(s => s.status === 'absent');
   if (hasMakeup) score += (weightMap['High Priority Make-up Duty'] || 10);
 
-  // g) Penalties (mutually exclusive ranges)
   if (absences > 5) {
     score += (weightMap['More than 5 Late Records'] || -20);
   } else if (absences > 3) {
     score += (weightMap['More than 3 Absences'] || -30);
   }
 
-  // h) Already completed required case? We check if case is completed already.
   const alreadyCompleted = progress.cases.some(c => c.status === 'complete' && c.name === slot.case_type);
   if (alreadyCompleted) score += (weightMap['Already Completed Required Case'] || -40);
 
-  // i) Weekly duty hour limit reached – we simplify by counting schedules in same week
   const slotDate = new Date(slot.date);
   const weekStart = new Date(slotDate);
   weekStart.setDate(slotDate.getDate() - slotDate.getDay());
@@ -1225,33 +1027,19 @@ export async function computeRecommendationScore(studentId, slotId) {
   };
 }
 
-// Get recommendations for a specific slot
 export async function getRecommendationsForSlot(slotId) {
-  // Get all students
   const { data: students, error } = await supabase
     .from('users')
     .select('id')
     .eq('role', 'student');
   if (error) throw error;
 
-  // Compute scores in parallel
   const results = await Promise.all(
     students.map(s => computeRecommendationScore(s.id, slotId))
   );
 
-  // Sort by score descending
   results.sort((a, b) => b.score - a.score);
-  return results.slice(0, 10); // Top 10
-}
-
-// Get attendance for student (helper)
-export async function getAttendanceForStudent(studentId) {
-  const { data, error } = await supabase
-    .from('attendance')
-    .select('*')
-    .eq('student_id', studentId);
-  if (error) throw error;
-  return data || [];
+  return results.slice(0, 10);
 }
 
 export { 

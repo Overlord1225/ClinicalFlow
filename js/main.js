@@ -608,11 +608,15 @@ export async function initAdminAnalytics() {
     const nextWeek = new Date(today);
     nextWeek.setDate(today.getDate() + 7);
     const { data: upcoming, error } = await supabase
-      .from('schedules')
-      .select('*, users(name), hospital:hospital_id (name)')
-      .gte('date', today.toISOString().split('T')[0])
-      .lte('date', nextWeek.toISOString().split('T')[0])
-      .eq('status', 'scheduled');
+  .from('schedules')
+  .select(`
+    *,
+    student:users!student_id (name),
+    hospital:hospital_id (name)
+  `)
+  .gte('date', today.toISOString().split('T')[0])
+  .lte('date', nextWeek.toISOString().split('T')[0])
+  .eq('status', 'scheduled');
     const upcomingContainer = document.getElementById('upcomingDuties');
     upcomingContainer.innerHTML = (upcoming && upcoming.length) ? upcoming.map(s => `
       <tr><td>${s.users?.name || 'Unknown'}</td><td>${s.date}</td><td>${s.hospital?.name || 'Unknown'}</td><td>${s.case_type}</td></tr>
