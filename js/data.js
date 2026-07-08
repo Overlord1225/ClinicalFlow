@@ -23,8 +23,8 @@ export async function signIn(email, password) {
 
 // ---- Ensure default admin account exists ----
 export async function ensureAdminAccount() {
-  const adminEmail = 'admin@clinicalflow.com';
-  const adminPassword = 'Admin123!';
+  const adminEmail = 'admin@sipag.com';
+  const adminPassword = 'password123';
 
   // 1. Check if admin row exists in users table
   const { data: existingRow, error } = await supabase
@@ -142,6 +142,141 @@ export function getCurrentUser() {
   if (stored) {
     currentUser = JSON.parse(stored);
     return currentUser;
+  }
+  return null;
+}
+
+// ============================================================
+// INCIDENT REPORTS
+// ============================================================
+
+export async function createIncidentReport(report) {
+  const { error } = await supabase
+    .from('incident_reports')
+    .insert([report]);
+  if (error) throw error;
+}
+
+export async function getIncidentReportsForUser(userId) {
+  const { data, error } = await supabase
+    .from('incident_reports')
+    .select('*')
+    .eq('reporter_id', userId)
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getAllIncidentReports() {
+  const { data, error } = await supabase
+    .from('incident_reports')
+    .select('*, reporter:reporter_id (name, email, role)')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function updateIncidentReportStatus(id, status) {
+  const { error } = await supabase
+    .from('incident_reports')
+    .update({ status })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+// ============================================================
+// STUDENT ATTENDANCE HISTORY
+// ============================================================
+
+export async function getAttendanceHistory(studentId) {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select(`
+      id,
+      time_in,
+      time_out,
+      status,
+      schedule:schedule_id (
+        date,
+        start_time,
+        end_time,
+        case_type,
+        hospital:hospital_id (name, address),
+        department:department_id (name)
+      )
+    `)
+    .eq('student_id', studentId)
+    .order('time_in', { ascending: false });
+  if (error) throw error;
+  return data || [];
+}
+
+// ============================================================
+// STUDENT SECTIONS (for scheduler)
+// ============================================================
+
+export async function getStudentsBySection(section) {
+  let query = supabase
+    .from('users')
+    .select('id, name, program, section')
+    .eq('role', 'student');
+  if (section) {
+    query = query.eq('section', section);
+  }
+  const { data, error } = await query.order('name');
+  if (error) throw error;
+  return data || [];
+}
+
+export async function getSections() {
+  const { data, error } = await supabase
+    .from('users')
+    .select('section')
+    .eq('role', 'student')
+    .not('section', 'is', null);
+  if (error) throw error;
+  const sections = [...new Set(data.map(item => item.section).filter(Boolean))];
+  return sections;
+}
+
+// ============================================================
+// CI ASSIGNED STUDENTS & LOCATION
+// ============================================================
+
+export async function getAssignedStudents(ciId) {
+  // Get distinct students from schedules where ci_id = ciId
+  const { data, error } = await supabase
+    .from('schedules')
+    .select(`
+      student:student_id (id, name, program, section)
+    `)
+    .eq('ci_id', ciId)
+    .neq('status', 'cancelled');
+  if (error) throw error;
+  // Deduplicate students
+  const studentMap = new Map();
+  data.forEach(item => {
+    if (item.student) {
+      studentMap.set(item.student.id, item.student);
+    }
+  });
+  return Array.from(studentMap.values());
+}
+
+export async function getCIAssignedHospital(ciId) {
+  // Get the most frequent hospital from schedules, or the next upcoming one
+  const { data, error } = await supabase
+    .from('schedules')
+    .select(`
+      hospital:hospital_id (id, name, address, latitude, longitude)
+    `)
+    .eq('ci_id', ciId)
+    .gte('date', new Date().toISOString().split('T')[0])
+    .order('date', { ascending: true })
+    .limit(1);
+  if (error) throw error;
+  if (data && data.length > 0) {
+    return data[0].hospital;
   }
   return null;
 }
