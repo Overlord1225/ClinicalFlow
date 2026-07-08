@@ -62,7 +62,7 @@ export async function initStudentDashboard() {
     const upcoming = schedules.filter(s => s.status === 'scheduled');
     const tbody = document.getElementById('upcomingTable');
     tbody.innerHTML = upcoming.map(s => `
-      <tr><td>${s.date}</td><td>${s.hospital}</td><td>${s.case_type}</td><td><span class="status-badge scheduled">Scheduled</span></td></tr>
+      <tr><td>${s.date}</td><td>${s.hospital?.name || 'N/A'}</td><td>${s.case_type || '-'}</td><td><span class="status-badge scheduled">Scheduled</span></td></tr>
     `).join('') || '<tr><td colspan="4">No upcoming duties</td></tr>';
 
     const notifList = document.getElementById('recentNotifs');

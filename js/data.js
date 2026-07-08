@@ -291,22 +291,35 @@ export async function logout() {
 
 // ---- Student helpers ----
 export async function getStudent(id) {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, name, program, students(year)')
-    .eq('id', id)
-    .maybeSingle();
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, name, program, students(year)')
+      .eq('id', id)
+      .maybeSingle();
 
-  if (error) throw error;
-  if (!data) {
+    if (error) throw error;
+    if (!data) {
+      return { id, name: 'Unknown', program: 'BSN', year: 1 };
+    }
+    return {
+      id: data.id,
+      name: data.name,
+      program: data.program || 'BSN',
+      year: data.students?.[0]?.year || 1,
+    };
+  } catch (err) {
+    // Fallback: the students relationship may not exist in all deployments
+    const { data } = await supabase
+      .from('users')
+      .select('id, name, program')
+      .eq('id', id)
+      .maybeSingle();
+    if (data) {
+      return { id: data.id, name: data.name, program: data.program || 'BSN', year: 1 };
+    }
     return { id, name: 'Unknown', program: 'BSN', year: 1 };
   }
-  return {
-    id: data.id,
-    name: data.name,
-    program: data.program || 'BSN',
-    year: data.students?.[0]?.year || 1,
-  };
 }
 
 export async function getProgress(studentId) {
@@ -344,7 +357,11 @@ export async function getSchedules(studentId) {
   try {
     const { data, error } = await supabase
       .from('schedules')
-      .select('*')
+      .select(`
+        *,
+        hospital:hospital_id (name),
+        department:department_id (name)
+      `)
       .eq('student_id', studentId);
     if (error) {
       console.error('Error fetching schedules:', error);

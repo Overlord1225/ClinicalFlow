@@ -434,7 +434,11 @@ export async function initScheduleManagement() {
   await loadScheduleList();
 
   document.getElementById('createBtn').addEventListener('click', async () => {
-    await createNewSchedule();
+    if (editingScheduleId) {
+      await saveEdit(editingScheduleId);
+    } else {
+      await createNewSchedule();
+    }
   });
 
   document.getElementById('clearFormBtn').addEventListener('click', () => {
@@ -443,6 +447,7 @@ export async function initScheduleManagement() {
       else if (el.type !== 'submit') el.value = '';
     });
     document.getElementById('createDepartment').innerHTML = '<option value="">Select Department</option>';
+    resetEditMode();
   });
 
   document.getElementById('createHospital').addEventListener('change', async (e) => {
@@ -488,11 +493,173 @@ export async function initScheduleManagement() {
   });
 }
 
-async function loadDropdowns() { /* ... */ }
-async function loadScheduleList() { /* ... */ }
-async function populateEditDropdowns() { /* ... */ }
-function toggleEditForm(id, show) { /* ... */ }
-async function saveEdit(id) { /* ... */ }
-async function createNewSchedule() { /* ... */ }
+// ---- Module-level state for edit mode ----
+let editingScheduleId = null;
 
-// These are already defined above; we'll keep them in this module.
+async function loadDropdowns() {
+  const students = await getStudents();
+  const cis = await getCIs();
+  const hospitals = await getHospitals();
+
+  const studentSelect = document.getElementById('createStudent');
+  const ciSelect = document.getElementById('createCI');
+  const hospitalSelect = document.getElementById('createHospital');
+
+  studentSelect.innerHTML = '<option value="">Select Student</option>' +
+    students.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  ciSelect.innerHTML = '<option value="">Select CI</option>' +
+    cis.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  hospitalSelect.innerHTML = '<option value="">Select Hospital</option>' +
+    hospitals.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+}
+
+async function loadScheduleList() {
+  const tbody = document.getElementById('scheduleTableBody');
+  if (!tbody) return;
+  try {
+    showLoading('scheduleTableBody', 'Loading schedules...');
+    const { data, error } = await supabase
+      .from('schedules')
+      .select(`
+        *,
+        student:users!student_id (name),
+        ci:users!ci_id (name),
+        hospital:hospital_id (name),
+        department:department_id (name)
+      `)
+      .order('date', { ascending: true });
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="9">No schedules found.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = data.map(s => `
+      <tr data-id="${s.id}">
+        <td>${s.student?.name || 'N/A'}</td>
+        <td>${s.ci?.name || 'N/A'}</td>
+        <td>${s.hospital?.name || 'N/A'}</td>
+        <td>${s.department?.name || 'N/A'}</td>
+        <td>${s.date}</td>
+        <td>${s.start_time} – ${s.end_time}</td>
+        <td>${s.case_type || '-'}</td>
+        <td><span class="status-badge ${s.status}">${s.status}</span></td>
+        <td>
+          <button class="edit-btn btn-primary" data-id="${s.id}">Edit</button>
+          <button class="delete-btn btn-secondary" data-id="${s.id}">Delete</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch (err) {
+    console.error('loadScheduleList error:', err);
+    tbody.innerHTML = `<tr><td colspan="9">Error: ${err.message}</td></tr>`;
+  } finally {
+    hideLoading('scheduleTableBody');
+  }
+}
+
+function buildSchedulePayload() {
+  return {
+    student_id: document.getElementById('createStudent').value,
+    ci_id: document.getElementById('createCI').value,
+    hospital_id: document.getElementById('createHospital').value,
+    department_id: document.getElementById('createDepartment').value,
+    date: document.getElementById('createDate').value,
+    start_time: document.getElementById('createStart').value,
+    end_time: document.getElementById('createEnd').value,
+    case_type: document.getElementById('createCaseType').value.trim() || null,
+  };
+}
+
+function validateSchedulePayload(p) {
+  return p.student_id && p.ci_id && p.hospital_id && p.department_id && p.date && p.start_time && p.end_time;
+}
+
+async function createNewSchedule() {
+  const payload = buildSchedulePayload();
+  if (!validateSchedulePayload(payload)) {
+    showToast('Please fill in all required fields.', 'warning');
+    return;
+  }
+  const btn = document.getElementById('createBtn');
+  btn.disabled = true;
+  try {
+    await createSchedule({ ...payload, status: 'scheduled' });
+    showToast('Schedule created successfully.', 'success');
+    document.getElementById('clearFormBtn').click();
+    await loadScheduleList();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadScheduleIntoForm(id) {
+  const { data, error } = await supabase
+    .from('schedules')
+    .select('*')
+    .eq('id', id)
+    .single();
+  if (error) {
+    showToast('Error: ' + error.message, 'error');
+    return;
+  }
+
+  editingScheduleId = id;
+  document.getElementById('createStudent').value = data.student_id || '';
+  document.getElementById('createCI').value = data.ci_id || '';
+  document.getElementById('createHospital').value = data.hospital_id || '';
+
+  const depts = await getDepartmentsByHospital(data.hospital_id);
+  const deptSelect = document.getElementById('createDepartment');
+  deptSelect.innerHTML = '<option value="">Select Department</option>' +
+    depts.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+  deptSelect.value = data.department_id || '';
+
+  document.getElementById('createDate').value = data.date || '';
+  document.getElementById('createStart').value = data.start_time || '';
+  document.getElementById('createEnd').value = data.end_time || '';
+  document.getElementById('createCaseType').value = data.case_type || '';
+
+  document.getElementById('createBtn').textContent = 'Save Changes';
+  document.getElementById('clearFormBtn').textContent = 'Cancel';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function resetEditMode() {
+  editingScheduleId = null;
+  document.getElementById('createBtn').textContent = 'Create Schedule';
+  document.getElementById('clearFormBtn').textContent = 'Clear';
+}
+
+function toggleEditForm(id, show = true) {
+  if (!show) {
+    document.getElementById('clearFormBtn').click();
+    resetEditMode();
+    return;
+  }
+  loadScheduleIntoForm(id);
+}
+
+async function saveEdit(id) {
+  const payload = buildSchedulePayload();
+  if (!validateSchedulePayload(payload)) {
+    showToast('Please fill in all required fields.', 'warning');
+    return;
+  }
+  const btn = document.getElementById('createBtn');
+  btn.disabled = true;
+  try {
+    await updateSchedule(id, payload);
+    showToast('Schedule updated successfully.', 'success');
+    document.getElementById('clearFormBtn').click();
+    resetEditMode();
+    await loadScheduleList();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
