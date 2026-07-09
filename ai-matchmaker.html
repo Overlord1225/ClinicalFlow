@@ -16,6 +16,48 @@
         <div class="badge"><i class="fas fa-star"></i> Smart recommendations</div>
       </header>
       <p style="margin-bottom:20px; color:#475569;">Available duty slots with top recommended students based on weighted scoring.</p>
+
+      <section style="margin-bottom:32px; background:#fff; border-radius:20px; padding:24px; box-shadow: 0 2px 8px rgba(0,0,0,0.04);">
+        <h3><i class="fas fa-plus-circle" style="color:#1a7a7a;"></i> Create Open Slot</h3>
+        <form id="openSlotForm">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
+            <div>
+              <label>Hospital</label>
+              <select id="openSlotHospital" required style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;"></select>
+            </div>
+            <div>
+              <label>Department</label>
+              <select id="openSlotDepartment" required style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;"><option value="">Select Department</option></select>
+            </div>
+            <div>
+              <label>Clinical Instructor</label>
+              <select id="openSlotCI" required style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;"></select>
+            </div>
+            <div>
+              <label>Case Type</label>
+              <select id="openSlotCaseType" required style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;"></select>
+            </div>
+            <div>
+              <label>Date</label>
+              <input type="date" id="openSlotDate" required style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;">
+            </div>
+            <div>
+              <label>Start Time</label>
+              <input type="time" id="openSlotStart" required style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;">
+            </div>
+            <div>
+              <label>End Time</label>
+              <input type="time" id="openSlotEnd" required style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;">
+            </div>
+            <div>
+              <label>Max Students</label>
+              <input type="number" id="openSlotMax" value="1" min="1" max="10" style="width:100%; padding:10px; border-radius:10px; border:1px solid #e9edf2; font-family:inherit;">
+            </div>
+          </div>
+          <button type="submit" class="btn-primary" style="margin-top:16px;"><i class="fas fa-save"></i> Create Open Slot</button>
+        </form>
+      </section>
+
       <section id="matchContainer"></section>
     </main>
   </div>

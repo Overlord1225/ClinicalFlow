@@ -455,6 +455,25 @@ export async function getOpenSlots() {
   return getAvailableSlots();
 }
 
+export async function createOpenSlot(slotData) {
+  const { data, error } = await supabase
+    .from('open_slots')
+    .insert([{
+      hospital_id: slotData.hospital_id,
+      department_id: slotData.department_id,
+      ci_id: slotData.ci_id,
+      date: slotData.date,
+      start_time: slotData.start_time,
+      end_time: slotData.end_time,
+      case_type: slotData.case_type,
+      max_students: slotData.max_students || 1,
+      is_makeup: slotData.is_makeup || false,
+    }])
+    .select();
+  if (error) throw error;
+  return data;
+}
+
 export async function getStudentsByIds(ids) {
   try {
     const { data, error } = await supabase

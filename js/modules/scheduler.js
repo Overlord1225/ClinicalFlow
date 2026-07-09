@@ -14,6 +14,8 @@ import {
   getRecommendationsForSlot,
   getStudentsBySection,
   getSections,
+  getCaseLibrary,
+  createOpenSlot,
   supabase
 } from '../data.js';
 import { showToast, showLoading, hideLoading } from '../utils.js';
@@ -315,6 +317,82 @@ export function initSendAnnouncement() {
   });
 }
 
+// ----- Create Open Slot Form -----
+export function initCreateOpenSlotForm() {
+  const user = requireAuth();
+  if (!user || (user.role !== 'scheduler' && user.role !== 'admin')) return;
+
+  const form = document.getElementById('openSlotForm');
+  if (!form) return;
+
+  // Load dropdowns
+  (async () => {
+    const hospitals = await getHospitals();
+    const cis = await getCIs();
+    const cases = await getCaseLibrary();
+
+    const hospitalSelect = document.getElementById('openSlotHospital');
+    hospitalSelect.innerHTML = '<option value="">Select Hospital</option>' +
+      hospitals.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+
+    const ciSelect = document.getElementById('openSlotCI');
+    ciSelect.innerHTML = '<option value="">Select CI</option>' +
+      cis.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+    const caseSelect = document.getElementById('openSlotCaseType');
+    caseSelect.innerHTML = '<option value="">Select Case Type</option>' +
+      cases.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+
+    // Hospital -> Department cascade
+    hospitalSelect.addEventListener('change', async () => {
+      const deptSelect = document.getElementById('openSlotDepartment');
+      if (!hospitalSelect.value) {
+        deptSelect.innerHTML = '<option value="">Select Department</option>';
+        return;
+      }
+      const depts = await getDepartmentsByHospital(hospitalSelect.value);
+      deptSelect.innerHTML = '<option value="">Select Department</option>' +
+        depts.map(d => `<option value="${d.id}">${d.name}</option>`).join('');
+    });
+  })();
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const submitBtn = form.querySelector('button[type="submit"]');
+
+    const payload = {
+      hospital_id: document.getElementById('openSlotHospital').value,
+      department_id: document.getElementById('openSlotDepartment').value,
+      ci_id: document.getElementById('openSlotCI').value,
+      date: document.getElementById('openSlotDate').value,
+      start_time: document.getElementById('openSlotStart').value,
+      end_time: document.getElementById('openSlotEnd').value,
+      case_type: document.getElementById('openSlotCaseType').value,
+      max_students: parseInt(document.getElementById('openSlotMax').value) || 1,
+      is_makeup: false,
+    };
+
+    if (!payload.hospital_id || !payload.department_id || !payload.ci_id || !payload.date || !payload.start_time || !payload.end_time || !payload.case_type) {
+      showToast('Please fill in all required fields.', 'warning');
+      return;
+    }
+
+    try {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+      await createOpenSlot(payload);
+      showToast('Open slot created successfully!', 'success');
+      form.reset();
+      document.getElementById('openSlotDepartment').innerHTML = '<option value="">Select Department</option>';
+    } catch (err) {
+      showToast('Error creating slot: ' + err.message, 'error');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="fas fa-save"></i> Create Open Slot';
+    }
+  });
+}
+
 // ----- AI Matchmaker -----
 export async function initAIMatchmaker() {
   const user = requireAuth();
@@ -407,6 +485,9 @@ export async function initAIMatchmaker() {
     }
 
     hideLoading('matchContainer');
+
+    // Init create open slot form
+    initCreateOpenSlotForm();
   } catch (err) {
     console.error('AI Matchmaker error:', err);
     hideLoading('matchContainer');
@@ -500,10 +581,13 @@ async function loadDropdowns() {
   const students = await getStudents();
   const cis = await getCIs();
   const hospitals = await getHospitals();
+  const cases = await getCaseLibrary();
 
   const studentSelect = document.getElementById('createStudent');
   const ciSelect = document.getElementById('createCI');
   const hospitalSelect = document.getElementById('createHospital');
+  const deptSelect = document.getElementById('createDepartment');
+  const caseTypeSelect = document.getElementById('createCaseType');
 
   studentSelect.innerHTML = '<option value="">Select Student</option>' +
     students.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
@@ -511,6 +595,9 @@ async function loadDropdowns() {
     cis.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
   hospitalSelect.innerHTML = '<option value="">Select Hospital</option>' +
     hospitals.map(h => `<option value="${h.id}">${h.name}</option>`).join('');
+  deptSelect.innerHTML = '<option value="">Select Department</option>';
+  caseTypeSelect.innerHTML = '<option value="">Select Case Type</option>' +
+    cases.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
 }
 
 async function loadScheduleList() {
