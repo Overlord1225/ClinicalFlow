@@ -381,7 +381,9 @@ export async function getAllSchedules() {
       .select(`
         *,
         student:users!student_id (name),
-        ci:users!ci_id (name)
+        ci:users!ci_id (name),
+        hospital:hospital_id (name),
+        department:department_id (name)
       `);
     if (error) {
       console.error('Error fetching all schedules:', error);
@@ -390,7 +392,9 @@ export async function getAllSchedules() {
     return (data || []).map(s => ({ 
       ...s, 
       studentName: s.student?.name || 'Unknown',
-      ciName: s.ci?.name || 'Unknown'
+      ciName: s.ci?.name || 'Unknown',
+      hospitalName: s.hospital?.name || 'Unknown',
+      departmentName: s.department?.name || 'Unknown'
     }));
   } catch (error) {
     console.error('Error in getAllSchedules:', error);
@@ -853,11 +857,16 @@ export async function createSchedule(scheduleData) {
 }
 
 export async function updateSchedule(scheduleId, updates) {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('schedules')
     .update(updates)
-    .eq('id', scheduleId);
+    .eq('id', scheduleId)
+    .select();
   if (error) throw error;
+  if (!data || data.length === 0) {
+    throw new Error('Update failed: No rows were updated. This is likely due to Row Level Security (RLS) preventing the update.');
+  }
+  return data;
 }
 
 export async function deleteSchedule(scheduleId) {

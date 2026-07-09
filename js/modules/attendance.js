@@ -21,7 +21,6 @@ export async function initAttendance() {
 
   try {
     await initFaceScanner();
-    showLoading('attendanceContainer', 'Loading your duty...');
 
     const schedule = await getUpcomingSchedule(user.id);
     if (!schedule) {
@@ -44,9 +43,7 @@ export async function initAttendance() {
       <strong>Time:</strong> ${schedule.start_time} – ${schedule.end_time} &nbsp;|&nbsp; 
       <strong>CI:</strong> ${schedule.ciName}
     `;
-    document.getElementById('distanceInfo').textContent = 'Current location will be checked during Time In and Time Out.';
 
-    await renderGpsMap(schedule, user.id);
     await renderAttendanceHistory(user.id);
 
     const existing = await getAttendanceForSchedule(schedule.id, user.id);
@@ -56,9 +53,6 @@ export async function initAttendance() {
         attendanceState.timeIn = existing.time_in;
         document.getElementById('timeInBtn').disabled = true;
         document.getElementById('timeOutBtn').disabled = false;
-        document.getElementById('gpsStatus').className = 'gps-status verified';
-        document.getElementById('gpsText').textContent = '✔ Time In recorded';
-        document.getElementById('distanceInfo').textContent = 'You may complete Time Out once you are within the assigned location.';
         const timeInDate = new Date(existing.time_in);
         document.getElementById('timerDisplay').textContent = timeInDate.toLocaleTimeString();
         if (existing.time_out) {
@@ -66,7 +60,6 @@ export async function initAttendance() {
           document.getElementById('timeOutBtn').disabled = true;
           document.getElementById('timerDisplay').textContent = 
             `${new Date(existing.time_in).toLocaleTimeString()} → ${new Date(existing.time_out).toLocaleTimeString()}`;
-          document.getElementById('distanceInfo').textContent = 'Attendance complete. Time Out has been recorded.';
         }
       }
     }
@@ -78,155 +71,6 @@ export async function initAttendance() {
     console.error('Attendance init error:', err);
     hideLoading('attendanceContainer');
     container.innerHTML = `<p>Error loading duty: ${err.message}</p>`;
-  }
-}
-
-function buildGpsSignalBars(accuracy) {
-  let barsActive = 0;
-  let label = 'No signal';
-  if (accuracy < 10) { barsActive = 3; label = 'Excellent'; }
-  else if (accuracy < 30) { barsActive = 3; label = 'Good'; }
-  else if (accuracy < 100) { barsActive = 2; label = 'Fair'; }
-  else if (accuracy < 300) { barsActive = 1; label = 'Weak'; }
-  else { barsActive = 0; label = 'No signal'; }
-
-  return `
-    <div class="gps-signal">
-      <div class="signal-bars">
-        <div class="signal-bar bar1 ${barsActive >= 1 ? 'active' : ''}"></div>
-        <div class="signal-bar bar2 ${barsActive >= 2 ? 'active' : ''}"></div>
-        <div class="signal-bar bar3 ${barsActive >= 3 ? 'active' : ''}"></div>
-      </div>
-      <span class="signal-label">${label}</span>
-    </div>
-  `;
-}
-
-function buildProximityBadge(distance, radius) {
-  let cls = 'far';
-  let label = 'Far';
-  if (distance <= radius) { cls = 'within'; label = 'Within radius ✓'; }
-  else if (distance <= radius * 2) { cls = 'near'; label = 'Nearby'; }
-  return `<span class="proximity-badge ${cls}"><i class="fas fa-${cls === 'within' ? 'check-circle' : cls === 'near' ? 'circle' : 'exclamation-circle'}"></i> ${label}</span>`;
-}
-
-function buildDistanceRing(distance, radius) {
-  const circumference = 2 * Math.PI * 37; // r=37
-  const ratio = Math.min(distance / radius, 1.5);
-  const offset = circumference * (1 - Math.min(ratio, 1));
-  let cls = 'far';
-  if (distance <= radius) cls = 'within';
-  else if (distance <= radius * 2) cls = 'near';
-  
-  return `
-    <div class="distance-ring">
-      <svg viewBox="0 0 80 80">
-        <circle class="ring-bg" cx="40" cy="40" r="37"/>
-        <circle class="ring-fill ${cls}" cx="40" cy="40" r="37" 
-          stroke-dasharray="${circumference}" 
-          stroke-dashoffset="${offset}"/>
-      </svg>
-      <div class="ring-center">
-        ${Math.round(distance)}<br><small>m</small>
-      </div>
-    </div>
-  `;
-}
-
-async function renderGpsMap(schedule, userId) {
-  const mapContainer = document.getElementById('mapContainer');
-  const gpsStatusEl = document.getElementById('gpsStatus');
-  const gpsTextEl = document.getElementById('gpsText');
-  const currentCoords = document.getElementById('currentCoords');
-  const hospitalCoords = document.getElementById('hospitalCoords');
-  const currentDistance = document.getElementById('currentDistance');
-
-  if (!mapContainer) return;
-  if (!schedule?.hospital || schedule.hospital.latitude == null || schedule.hospital.longitude == null) {
-    mapContainer.innerHTML = '<p>No hospital location configured for this duty.</p>';
-    if (gpsStatusEl) {
-      gpsStatusEl.className = 'gps-status waiting';
-      gpsTextEl.textContent = 'Hospital location not available.';
-    }
-    return;
-  }
-
-  // Show skeleton while loading
-  mapContainer.innerHTML = `
-    <div class="map-skeleton">
-      <div class="skeleton-icon"><i class="fas fa-map-marked-alt"></i></div>
-      <div class="skeleton-text">Loading GPS data...</div>
-    </div>
-  `;
-
-  // Add distance ring container and GPS signal area if they don't exist
-  let distanceRingArea = document.getElementById('distanceRingArea');
-  if (!distanceRingArea && gpsStatusEl?.parentNode) {
-    const ringDiv = document.createElement('div');
-    ringDiv.id = 'distanceRingArea';
-    gpsStatusEl.parentNode.insertBefore(ringDiv, gpsStatusEl.nextSibling);
-    distanceRingArea = ringDiv;
-  }
-
-  try {
-    const gpsResult = await verifyGPS(userId, schedule.id);
-    const pos = gpsResult.position;
-    const hospital = gpsResult.hospitalCoords;
-
-    if (currentCoords) currentCoords.textContent = `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)} (${pos.accuracy.toFixed(1)}m)`;
-    if (hospitalCoords) hospitalCoords.textContent = `${hospital.lat.toFixed(6)}, ${hospital.lng.toFixed(6)}`;
-    if (currentDistance) currentDistance.textContent = `${Math.round(gpsResult.distance)} m`;
-
-    // GPS signal indicator
-    if (gpsStatusEl) {
-      gpsStatusEl.className = 'gps-status';
-      const signalHtml = buildGpsSignalBars(pos.accuracy);
-      const proximityBadge = buildProximityBadge(gpsResult.distance, gpsResult.radius);
-      gpsStatusEl.innerHTML = `
-        <i class="fas fa-map-pin"></i> GPS: ${signalHtml} ${proximityBadge}
-      `;
-    }
-    if (gpsTextEl) {
-      gpsTextEl.textContent = `You are ${Math.round(gpsResult.distance)}m from the assigned location. Target radius ${gpsResult.radius}m.`;
-    }
-
-    // Distance ring
-    if (distanceRingArea) {
-      const ringHtml = buildDistanceRing(gpsResult.distance, gpsResult.radius);
-      distanceRingArea.innerHTML = `
-        <div class="distance-ring-container">
-          ${ringHtml}
-          <div>
-            <div style="font-weight:600;font-size:15px;color:#0f172a;">
-              ${Math.round(gpsResult.distance)}m / ${gpsResult.radius}m
-            </div>
-            <div style="font-size:13px;color:#64748b;margin-top:2px;">
-              from ${schedule.hospital?.name || 'assigned location'}
-            </div>
-            ${gpsResult.within 
-              ? '<div style="color:#16a34a;font-weight:500;font-size:13px;margin-top:4px;">✓ You are within the allowed radius</div>'
-              : `<div style="color:#dc2626;font-weight:500;font-size:13px;margin-top:4px;">✖ ${Math.round(gpsResult.distance - gpsResult.radius)}m beyond radius</div>`
-            }
-          </div>
-        </div>
-      `;
-    }
-
-    const padding = 0.01;
-    const minLat = Math.min(pos.lat, hospital.lat) - padding;
-    const maxLat = Math.max(pos.lat, hospital.lat) + padding;
-    const minLng = Math.min(pos.lng, hospital.lng) - padding;
-    const maxLng = Math.max(pos.lng, hospital.lng) + padding;
-
-    const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${minLng}%2C${minLat}%2C${maxLng}%2C${maxLat}&layer=mapnik&marker=${hospital.lat}%2C${hospital.lng}`;
-    mapContainer.innerHTML = `<iframe src="${mapUrl}" title="Location map" loading="lazy"></iframe>`;
-  } catch (err) {
-    if (gpsTextEl) gpsTextEl.textContent = err.message || 'Unable to load GPS map.';
-    if (gpsStatusEl) {
-      gpsStatusEl.className = 'gps-status failed';
-      gpsStatusEl.innerHTML = `<i class="fas fa-exclamation-triangle"></i> GPS: ${err.message || 'Unable to load GPS'}`;
-    }
-    mapContainer.innerHTML = `<div class="status-message error">${err.message || 'GPS unavailable. Allow location access.'}</div>`;
   }
 }
 
@@ -298,21 +142,13 @@ export async function performTimeIn() {
   btn.textContent = 'Verifying...';
 
   try {
-    document.getElementById('gpsText').textContent = 'Checking location...';
     const gpsResult = await verifyGPS(user.id, schedule.id);
     if (!gpsResult.within) {
-      document.getElementById('gpsStatus').className = 'gps-status failed';
-      document.getElementById('gpsText').textContent = `✖ Outside radius (${Math.round(gpsResult.distance)}m / ${gpsResult.radius}m)`;
-      document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}. Move within ${gpsResult.radius}m to Time In.`;
       showToast(`You are ${Math.round(gpsResult.distance)}m away. Must be within ${gpsResult.radius}m.`, 'error');
       btn.disabled = false;
       btn.textContent = 'Time In';
       return;
     }
-
-    document.getElementById('gpsStatus').className = 'gps-status verified';
-    document.getElementById('gpsText').textContent = `✔ Verified (${Math.round(gpsResult.distance)}m within ${gpsResult.radius}m)`;
-    document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}.`;
 
     const now = new Date().toISOString();
     const scheduleStart = new Date(`${schedule.date}T${schedule.start_time}`).getTime();
@@ -357,20 +193,13 @@ export async function performTimeOut() {
   btn.textContent = 'Verifying...';
 
   try {
-    document.getElementById('gpsText').textContent = 'Checking location for Time Out...';
     const gpsResult = await verifyGPS(user.id, schedule.id);
     if (!gpsResult.within) {
-      document.getElementById('gpsStatus').className = 'gps-status failed';
-      document.getElementById('gpsText').textContent = `✖ Outside radius (${Math.round(gpsResult.distance)}m / ${gpsResult.radius}m)`;
-      document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}. Move within ${gpsResult.radius}m to Time Out.`;
       showToast(`You are ${Math.round(gpsResult.distance)}m away. Must be within ${gpsResult.radius}m.`, 'error');
       btn.disabled = false;
       btn.textContent = 'Time Out';
       return;
     }
-    document.getElementById('gpsStatus').className = 'gps-status verified';
-    document.getElementById('gpsText').textContent = `✔ Verified (${Math.round(gpsResult.distance)}m within ${gpsResult.radius}m)`;
-    document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}.`;
 
     const now = new Date().toISOString();
     await updateAttendance(schedule.id, user.id, {

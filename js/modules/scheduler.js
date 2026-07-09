@@ -48,7 +48,7 @@ export async function initSchedulerDashboard() {
 
     const tbody = document.getElementById('allSchedTable');
     tbody.innerHTML = allSched.map(s => `
-      <tr><td>${s.studentName}</td><td>${s.date}</td><td>${s.hospital}</td><td>${s.case_type}</td><td><span class="status-badge ${s.status}">${s.status}</span></td></tr>
+      <tr><td>${s.studentName}</td><td>${s.date}</td><td>${s.hospitalName}</td><td>${s.case_type}</td><td><span class="status-badge ${s.status}">${s.status}</span></td></tr>
     `).join('');
 
     hideLoading('allSchedTable');
@@ -760,12 +760,15 @@ async function saveEdit(id) {
   const btn = document.getElementById('createBtn');
   btn.disabled = true;
   try {
-    await updateSchedule(id, payload);
+    console.log('saveEdit: payload to send:', JSON.stringify(payload, null, 2));
+    const result = await updateSchedule(id, payload);
+    console.log('saveEdit: update result:', result);
     showToast('Schedule updated successfully.', 'success');
     document.getElementById('clearFormBtn').click();
     resetEditMode();
     await loadScheduleList();
   } catch (err) {
+    console.error('saveEdit error:', err);
     showToast('Error: ' + err.message, 'error');
   } finally {
     btn.disabled = false;
