@@ -1,3 +1,5 @@
+import { supabase } from './supabaseClient.js';
+
 let faceapiLoaded = false;
 let modelsLoaded = false;
 
@@ -71,7 +73,7 @@ export async function captureFaceDescriptor(videoElement) {
   }
 }
 
-// Register face for a user
+// Register face for a user — stores in Supabase
 export async function registerFace(userId, userName, videoElement) {
   try {
     const result = await captureFaceDescriptor(videoElement);
@@ -80,19 +82,22 @@ export async function registerFace(userId, userName, videoElement) {
       return { success: false, error: result.error };
     }
 
-    // Store face descriptor in localStorage
-    const faceData = {
-      userId: userId,
-      userName: userName,
-      descriptor: result.descriptor,
-      registeredAt: new Date().toISOString()
-    };
+    // Upsert face descriptor into Supabase
+    const { error } = await supabase
+      .from('face_descriptors')
+      .upsert({
+        user_id: userId,
+        user_name: userName,
+        descriptor: result.descriptor,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id'
+      });
 
-    // Get existing registered faces
-    const registeredFaces = getRegisteredFaces();
-    registeredFaces[userId] = faceData;
-    
-    localStorage.setItem('sipag_faces', JSON.stringify(registeredFaces));
+    if (error) {
+      console.error('Supabase upsert error:', error);
+      return { success: false, error: 'Failed to save face data: ' + error.message };
+    }
 
     return { success: true, message: 'Face registered successfully!' };
   } catch (error) {
@@ -101,11 +106,30 @@ export async function registerFace(userId, userName, videoElement) {
   }
 }
 
-// Get all registered faces from localStorage
-export function getRegisteredFaces() {
+// Get all registered faces from Supabase
+export async function getRegisteredFaces() {
   try {
-    const stored = localStorage.getItem('sipag_faces');
-    return stored ? JSON.parse(stored) : {};
+    const { data, error } = await supabase
+      .from('face_descriptors')
+      .select('user_id, user_name, descriptor');
+
+    if (error) {
+      console.error('Error fetching face descriptors:', error);
+      return {};
+    }
+
+    // Convert array to map keyed by user_id (same format as old localStorage)
+    const faceMap = {};
+    if (data) {
+      data.forEach(face => {
+        faceMap[face.user_id] = {
+          userId: face.user_id,
+          userName: face.user_name,
+          descriptor: face.descriptor
+        };
+      });
+    }
+    return faceMap;
   } catch (error) {
     console.error('Error getting registered faces:', error);
     return {};
@@ -129,8 +153,8 @@ export async function recognizeFace(videoElement, threshold = 0.6) {
       return { success: false, error: 'No face detected', matches: [] };
     }
 
-    // Compare with registered faces
-    const registeredFaces = getRegisteredFaces();
+    // Compare with registered faces from Supabase
+    const registeredFaces = await getRegisteredFaces();
     const matches = [];
 
     for (const [userId, faceData] of Object.entries(registeredFaces)) {
@@ -181,8 +205,8 @@ export async function detectAllFaces(videoElement, threshold = 0.6) {
       return { success: true, faces: [] };
     }
 
-    // Compare each detected face with registered faces
-    const registeredFaces = getRegisteredFaces();
+    // Compare each detected face with registered faces from Supabase
+    const registeredFaces = await getRegisteredFaces();
     const recognizedFaces = [];
 
     for (const detection of detections) {
@@ -227,16 +251,42 @@ export async function detectAllFaces(videoElement, threshold = 0.6) {
 }
 
 // Check if user has registered face
-export function hasRegisteredFace(userId) {
-  const registeredFaces = getRegisteredFaces();
-  return !!registeredFaces[userId];
+export async function hasRegisteredFace(userId) {
+  try {
+    const { data, error } = await supabase
+      .from('face_descriptors')
+      .select('id')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error checking face registration:', error);
+      return false;
+    }
+    return !!data;
+  } catch (error) {
+    console.error('Error in hasRegisteredFace:', error);
+    return false;
+  }
 }
 
-// Delete registered face
-export function deleteRegisteredFace(userId) {
-  const registeredFaces = getRegisteredFaces();
-  delete registeredFaces[userId];
-  localStorage.setItem('sipag_faces', JSON.stringify(registeredFaces));
+// Delete registered face from Supabase
+export async function deleteRegisteredFace(userId) {
+  try {
+    const { error } = await supabase
+      .from('face_descriptors')
+      .delete()
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error deleting face descriptor:', error);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error('Error in deleteRegisteredFace:', error);
+    return false;
+  }
 }
 
 // Start webcam

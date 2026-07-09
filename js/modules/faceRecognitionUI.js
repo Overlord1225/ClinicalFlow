@@ -158,7 +158,7 @@ function stopFaceDetectionLoop() {
 }
 
 async function initStudentFaceMode(user, container) {
-  const hasFace = hasRegisteredFace(user.id);
+  const hasFace = await hasRegisteredFace(user.id);
   
   let html = `
     <h3><i class="fas fa-camera"></i> Face Registration & Verification</h3>
@@ -283,8 +283,8 @@ async function initStudentFaceMode(user, container) {
 
   const reregisterBtn = document.getElementById('reregisterFaceBtn');
   if (reregisterBtn) {
-    reregisterBtn.addEventListener('click', () => {
-      deleteRegisteredFace(user.id);
+    reregisterBtn.addEventListener('click', async () => {
+      await deleteRegisteredFace(user.id);
       stopFaceDetectionLoop();
       initStudentFaceMode(user, container);
     });

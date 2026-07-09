@@ -6,6 +6,8 @@ ClinicalFlow is a clinical rotation management system with **AI-powered face rec
 
 ---
 
+NIGGER
+
 ## ✨ Key Features
 
 ### 🔐 Authentication & Roles
