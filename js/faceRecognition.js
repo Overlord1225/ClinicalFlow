@@ -91,7 +91,7 @@ export async function registerFace(userId, userName, videoElement) {
     const registeredFaces = getRegisteredFaces();
     registeredFaces[userId] = faceData;
     
-    localStorage.setItem('clinicalflow_faces', JSON.stringify(registeredFaces));
+    localStorage.setItem('sipag_faces', JSON.stringify(registeredFaces));
 
     return { success: true, message: 'Face registered successfully!' };
   } catch (error) {
@@ -103,7 +103,7 @@ export async function registerFace(userId, userName, videoElement) {
 // Get all registered faces from localStorage
 export function getRegisteredFaces() {
   try {
-    const stored = localStorage.getItem('clinicalflow_faces');
+    const stored = localStorage.getItem('sipag_faces');
     return stored ? JSON.parse(stored) : {};
   } catch (error) {
     console.error('Error getting registered faces:', error);
@@ -235,7 +235,7 @@ export function hasRegisteredFace(userId) {
 export function deleteRegisteredFace(userId) {
   const registeredFaces = getRegisteredFaces();
   delete registeredFaces[userId];
-  localStorage.setItem('clinicalflow_faces', JSON.stringify(registeredFaces));
+  localStorage.setItem('sipag_faces', JSON.stringify(registeredFaces));
 }
 
 // Start webcam

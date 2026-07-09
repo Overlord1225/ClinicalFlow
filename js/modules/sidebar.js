@@ -35,7 +35,7 @@ export function renderSidebar(activePage) {
     ];
   }
 
-  let html = `<div class="sidebar"><div class="brand">Clinical<span>Flow</span></div>`;
+  let html = `<div class="sidebar"><div class="brand">SIPAG</div>`;
   navItems.forEach(item => {
     const active = item.page === activePage ? 'active' : '';
     html += `<a href="${item.page}" class="nav-item ${active}"><i class="fas ${item.icon}"></i><span>${item.label}</span>`;

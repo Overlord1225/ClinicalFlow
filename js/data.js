@@ -17,7 +17,7 @@ export async function signIn(email, password) {
   if (!userData) throw new Error('User profile not found. Please contact support.');
 
   currentUser = userData;
-  sessionStorage.setItem('clinicalflow_user', JSON.stringify(currentUser));
+  sessionStorage.setItem('sipag_user', JSON.stringify(currentUser));
   return currentUser;
 }
 
@@ -138,7 +138,7 @@ export async function ensureAdminAccount() {
 // ---- Get current user from session ----
 export function getCurrentUser() {
   if (currentUser) return currentUser;
-  const stored = sessionStorage.getItem('clinicalflow_user');
+  const stored = sessionStorage.getItem('sipag_user');
   if (stored) {
     currentUser = JSON.parse(stored);
     return currentUser;
@@ -284,7 +284,7 @@ export async function getCIAssignedHospital(ciId) {
 // ---- Logout ----
 export async function logout() {
   await supabase.auth.signOut();
-  sessionStorage.removeItem('clinicalflow_user');
+  sessionStorage.removeItem('sipag_user');
   currentUser = null;
   window.location.href = 'index.html';
 }
