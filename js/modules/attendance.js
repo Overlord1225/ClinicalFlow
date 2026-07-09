@@ -4,14 +4,12 @@ import {
   getAttendanceForSchedule,
   verifyGPS,
   recordAttendance,
-  updateAttendance
+  updateAttendance,
+  getAttendanceHistory
 } from '../data.js';
+import { initFaceScanner } from './faceRecognitionUI.js';
 import { showToast, showLoading, hideLoading } from '../utils.js';
 
-let faceMesh = null;
-let camera = null;
-let videoElement = null;
-let blinkDetected = false;
 let attendanceState = { timeIn: null, timeOut: null, schedule: null, attendanceId: null };
 
 export async function initAttendance() {
@@ -22,22 +20,34 @@ export async function initAttendance() {
   if (!container) return;
 
   try {
+    await initFaceScanner();
     showLoading('attendanceContainer', 'Loading your duty...');
 
     const schedule = await getUpcomingSchedule(user.id);
     if (!schedule) {
-      container.innerHTML = '<p>No upcoming duty. Please check your schedule.</p>';
+      container.innerHTML = '<p>No upcoming duty. Please check your schedule.</p>' +
+        '<p class="debug-note">If you believe this is wrong, verify your schedule date/status in the database.</p>';
+      await renderAttendanceHistory(user.id);
       return;
     }
 
     attendanceState.schedule = schedule;
 
-    document.getElementById('dutyTitle').textContent = `${schedule.case_type || 'Duty'} – ${schedule.hospital?.name || 'N/A'}`;
+    const assignedLocationText = schedule.hospital?.name ? `${schedule.hospital.name}` : 'Unassigned';
+    const radiusValue = schedule.hospital?.attendance_radius || 100;
+
+    document.getElementById('assignedLocation').textContent = assignedLocationText;
+    document.getElementById('allowedRadius').textContent = `${radiusValue} m`;
+    document.getElementById('dutyTitle').textContent = `${schedule.case_type || 'Duty'} – ${assignedLocationText}`;
     document.getElementById('dutyDetails').innerHTML = `
       <strong>Date:</strong> ${schedule.date} &nbsp;|&nbsp; 
       <strong>Time:</strong> ${schedule.start_time} – ${schedule.end_time} &nbsp;|&nbsp; 
       <strong>CI:</strong> ${schedule.ciName}
     `;
+    document.getElementById('distanceInfo').textContent = 'Current location will be checked during Time In and Time Out.';
+
+    await renderGpsMap(schedule, user.id);
+    await renderAttendanceHistory(user.id);
 
     const existing = await getAttendanceForSchedule(schedule.id, user.id);
     if (existing) {
@@ -46,10 +56,9 @@ export async function initAttendance() {
         attendanceState.timeIn = existing.time_in;
         document.getElementById('timeInBtn').disabled = true;
         document.getElementById('timeOutBtn').disabled = false;
-        document.getElementById('gpsStatus').classList.add('verified');
-        document.getElementById('gpsText').textContent = '✔ Verified (Time In)';
-        document.getElementById('faceStatus').classList.add('verified');
-        document.getElementById('faceText').textContent = '✔ Verified (Time In)';
+        document.getElementById('gpsStatus').className = 'gps-status verified';
+        document.getElementById('gpsText').textContent = '✔ Time In recorded';
+        document.getElementById('distanceInfo').textContent = 'You may complete Time Out once you are within the assigned location.';
         const timeInDate = new Date(existing.time_in);
         document.getElementById('timerDisplay').textContent = timeInDate.toLocaleTimeString();
         if (existing.time_out) {
@@ -57,14 +66,13 @@ export async function initAttendance() {
           document.getElementById('timeOutBtn').disabled = true;
           document.getElementById('timerDisplay').textContent = 
             `${new Date(existing.time_in).toLocaleTimeString()} → ${new Date(existing.time_out).toLocaleTimeString()}`;
+          document.getElementById('distanceInfo').textContent = 'Attendance complete. Time Out has been recorded.';
         }
       }
     }
 
-    await setupCamera();
-
     hideLoading('attendanceContainer');
-    showToast('Ready for biometric verification', 'success', 2000);
+    showToast('Ready for attendance verification', 'success', 2000);
 
   } catch (err) {
     console.error('Attendance init error:', err);
@@ -73,102 +81,108 @@ export async function initAttendance() {
   }
 }
 
-async function setupCamera() {
-  videoElement = document.getElementById('video');
-  if (!videoElement) return;
+async function renderGpsMap(schedule, userId) {
+  const gpsText = document.getElementById('gpsMapText');
+  const currentCoords = document.getElementById('currentCoords');
+  const hospitalCoords = document.getElementById('hospitalCoords');
+  const currentDistance = document.getElementById('currentDistance');
+  const mapContainer = document.getElementById('mapContainer');
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-    videoElement.srcObject = stream;
-    await videoElement.play();
-
-    // MediaPipe Face Mesh
-    faceMesh = new FaceMesh({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`
-    });
-    faceMesh.setOptions({
-      maxNumFaces: 1,
-      refineLandmarks: true,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-    faceMesh.onResults(onFaceResults);
-
-    const cameraUtils = new Camera(videoElement, {
-      onFrame: async () => {
-        await faceMesh.send({ image: videoElement });
-      },
-      width: 640,
-      height: 480
-    });
-    await cameraUtils.start();
-
-    document.getElementById('cameraOverlay').style.display = 'none';
-  } catch (err) {
-    console.error('Camera error:', err);
-    showToast('Could not access camera: ' + err.message, 'error');
-  }
-}
-
-let eyeOpen = true;
-let blinkCount = 0;
-let lastBlinkTime = 0;
-
-function onFaceResults(results) {
-  if (!results.multiFaceLandmarks || results.multiFaceLandmarks.length === 0) {
-    document.getElementById('faceText').textContent = 'No face detected';
-    document.getElementById('faceStatus').className = 'face-status failed';
+  if (!mapContainer) return;
+  if (!schedule?.hospital || schedule.hospital.latitude == null || schedule.hospital.longitude == null) {
+    mapContainer.innerHTML = '<p>No hospital location configured for this duty.</p>';
+    if (gpsText) gpsText.textContent = 'Hospital location not available.';
     return;
   }
 
-  const landmarks = results.multiFaceLandmarks[0];
-  const leftEye = [33, 133, 160, 159, 158, 144];
-  const rightEye = [362, 263, 387, 386, 385, 380];
-  const earLeft = getEAR(landmarks, leftEye);
-  const earRight = getEAR(landmarks, rightEye);
-  const ear = (earLeft + earRight) / 2;
+  try {
+    const gpsResult = await verifyGPS(userId, schedule.id);
+    const pos = gpsResult.position;
+    const hospital = gpsResult.hospitalCoords;
 
-  const threshold = 0.2;
-  const currentTime = Date.now();
+    if (currentCoords) currentCoords.textContent = `${pos.lat.toFixed(6)}, ${pos.lng.toFixed(6)} (${pos.accuracy.toFixed(1)}m)`;
+    if (hospitalCoords) hospitalCoords.textContent = `${hospital.lat.toFixed(6)}, ${hospital.lng.toFixed(6)}`;
+    if (currentDistance) currentDistance.textContent = `${Math.round(gpsResult.distance)} m`;
+    if (gpsText) gpsText.textContent = `You are ${Math.round(gpsResult.distance)}m from the assigned location. Target radius ${gpsResult.radius}m.`;
 
-  if (ear < threshold && eyeOpen) {
-    eyeOpen = false;
-  } else if (ear >= threshold && !eyeOpen) {
-    eyeOpen = true;
-    if (currentTime - lastBlinkTime > 300) {
-      blinkCount++;
-      lastBlinkTime = currentTime;
-      document.getElementById('faceText').textContent = `Blink detected (${blinkCount})`;
-      if (blinkCount >= 1) {
-        blinkDetected = true;
-        document.getElementById('faceStatus').className = 'face-status verified';
-        document.getElementById('faceText').textContent = '✔ Liveness passed';
-        showToast('Liveness verified!', 'success', 2000);
-      }
-    }
+    const padding = 0.01;
+    const minLat = Math.min(pos.lat, hospital.lat) - padding;
+    const maxLat = Math.max(pos.lat, hospital.lat) + padding;
+    const minLng = Math.min(pos.lng, hospital.lng) - padding;
+    const maxLng = Math.max(pos.lng, hospital.lng) + padding;
+
+    const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${minLng}%2C${minLat}%2C${maxLng}%2C${maxLat}&layer=mapnik&marker=${hospital.lat}%2C${hospital.lng}`;
+    mapContainer.innerHTML = `<iframe src="${mapUrl}"></iframe>`;
+  } catch (err) {
+    if (gpsText) gpsText.textContent = err.message || 'Unable to load GPS map.';
+    mapContainer.innerHTML = `<div class="status-message error">${err.message || 'GPS unavailable. Allow location access.'}</div>`;
   }
 }
 
-function getEAR(landmarks, indices) {
-  const p1 = landmarks[indices[0]];
-  const p2 = landmarks[indices[1]];
-  const p3 = landmarks[indices[2]];
-  const p4 = landmarks[indices[3]];
-  const p5 = landmarks[indices[4]];
-  const p6 = landmarks[indices[5]];
-  const dist1 = Math.hypot(p2.x - p6.x, p2.y - p6.y);
-  const dist2 = Math.hypot(p3.x - p5.x, p3.y - p5.y);
-  const dist3 = Math.hypot(p1.x - p4.x, p1.y - p4.y);
-  return (dist1 + dist2) / (2 * dist3);
+async function renderAttendanceHistory(userId) {
+  const historyContainer = document.getElementById('attendanceHistory');
+  if (!historyContainer) return;
+
+  try {
+    const history = await getAttendanceHistory(userId);
+    if (!history || history.length === 0) {
+      historyContainer.innerHTML = '<p>No attendance records yet.</p>';
+      return;
+    }
+
+    const rows = history.map(record => {
+      const schedule = record.attendance?.schedule;
+      const date = schedule?.date || '-';
+      const hospital = schedule?.hospital?.name || '-';
+      const timeIn = record.time_in ? new Date(record.time_in).toLocaleTimeString() : '-';
+      const timeOut = record.time_out ? new Date(record.time_out).toLocaleTimeString() : '-';
+      return `
+        <tr>
+          <td>${date}</td>
+          <td>${hospital}</td>
+          <td>${timeIn}</td>
+          <td>${timeOut}</td>
+          <td>${record.status || '-'}</td>
+          <td>${record.verification_method || 'gps'}</td>
+        </tr>
+      `;
+    }).join('');
+
+    historyContainer.innerHTML = `
+      <div class="table-wrap">
+        <table class="attendance-history-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Hospital</th>
+              <th>Time In</th>
+              <th>Time Out</th>
+              <th>Status</th>
+              <th>Method</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+  } catch (err) {
+    historyContainer.innerHTML = `<p class="status-message error">Failed to load history: ${err.message}</p>`;
+  }
 }
 
 export async function performTimeIn() {
   const user = getCurrentUser();
   if (!user) return;
+
   const schedule = attendanceState.schedule;
-  if (!schedule) { showToast('No duty loaded', 'error'); return; }
+  if (!schedule) {
+    showToast('No duty loaded', 'error');
+    return;
+  }
 
   const btn = document.getElementById('timeInBtn');
+  if (!btn) return;
+
   btn.disabled = true;
   btn.textContent = 'Verifying...';
 
@@ -176,26 +190,18 @@ export async function performTimeIn() {
     document.getElementById('gpsText').textContent = 'Checking location...';
     const gpsResult = await verifyGPS(user.id, schedule.id);
     if (!gpsResult.within) {
+      document.getElementById('gpsStatus').className = 'gps-status failed';
+      document.getElementById('gpsText').textContent = `✖ Outside radius (${Math.round(gpsResult.distance)}m / ${gpsResult.radius}m)`;
+      document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}. Move within ${gpsResult.radius}m to Time In.`;
       showToast(`You are ${Math.round(gpsResult.distance)}m away. Must be within ${gpsResult.radius}m.`, 'error');
       btn.disabled = false;
       btn.textContent = 'Time In';
       return;
     }
+
     document.getElementById('gpsStatus').className = 'gps-status verified';
     document.getElementById('gpsText').textContent = `✔ Verified (${Math.round(gpsResult.distance)}m within ${gpsResult.radius}m)`;
-
-    document.getElementById('faceText').textContent = 'Looking for face & blink...';
-    let attempts = 0;
-    while (!blinkDetected && attempts < 50) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      attempts++;
-    }
-    if (!blinkDetected) {
-      showToast('No blink detected. Please blink to verify liveness.', 'error');
-      btn.disabled = false;
-      btn.textContent = 'Time In';
-      return;
-    }
+    document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}.`;
 
     const now = new Date().toISOString();
     const scheduleStart = new Date(`${schedule.date}T${schedule.start_time}`).getTime();
@@ -208,9 +214,9 @@ export async function performTimeIn() {
       now,
       null,
       { in: { lat: gpsResult.position.lat, lng: gpsResult.position.lng, accuracy: gpsResult.position.accuracy } },
-      true,
-      true,
-      'biometric',
+      false,
+      false,
+      'gps',
       status
     );
 
@@ -243,6 +249,9 @@ export async function performTimeOut() {
     document.getElementById('gpsText').textContent = 'Checking location for Time Out...';
     const gpsResult = await verifyGPS(user.id, schedule.id);
     if (!gpsResult.within) {
+      document.getElementById('gpsStatus').className = 'gps-status failed';
+      document.getElementById('gpsText').textContent = `✖ Outside radius (${Math.round(gpsResult.distance)}m / ${gpsResult.radius}m)`;
+      document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}. Move within ${gpsResult.radius}m to Time Out.`;
       showToast(`You are ${Math.round(gpsResult.distance)}m away. Must be within ${gpsResult.radius}m.`, 'error');
       btn.disabled = false;
       btn.textContent = 'Time Out';
@@ -250,21 +259,7 @@ export async function performTimeOut() {
     }
     document.getElementById('gpsStatus').className = 'gps-status verified';
     document.getElementById('gpsText').textContent = `✔ Verified (${Math.round(gpsResult.distance)}m within ${gpsResult.radius}m)`;
-
-    blinkDetected = false;
-    blinkCount = 0;
-    document.getElementById('faceText').textContent = 'Look at camera and blink...';
-    let attempts = 0;
-    while (!blinkDetected && attempts < 50) {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      attempts++;
-    }
-    if (!blinkDetected) {
-      showToast('No blink detected. Please blink to verify liveness.', 'error');
-      btn.disabled = false;
-      btn.textContent = 'Time Out';
-      return;
-    }
+    document.getElementById('distanceInfo').textContent = `You are ${Math.round(gpsResult.distance)}m from ${schedule.hospital?.name || 'assigned location'}.`;
 
     const now = new Date().toISOString();
     await updateAttendance(schedule.id, user.id, {

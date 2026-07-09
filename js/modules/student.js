@@ -73,6 +73,9 @@ export async function initStudentDashboard() {
       </div>
     `).join('') || '<p>No notifications</p>';
 
+    renderDashboardCalendar(schedules);
+    renderCurrentThemes(progress, notifs, nextSchedule);
+
     // Attendance History
     const history = await getAttendanceHistory(user.id);
     const historyTbody = document.getElementById('historyTable');
@@ -208,4 +211,98 @@ export async function initOpportunityBoard() {
     hideLoading('opportunityContainer');
     showToast('Error loading opportunities: ' + err.message, 'error');
   }
+}
+
+function renderDashboardCalendar(schedules) {
+  const calendarGrid = document.getElementById('calendarGrid');
+  const calendarEvents = document.getElementById('calendarEvents');
+  const calendarMonth = document.getElementById('calendarMonth');
+  if (!calendarGrid || !calendarEvents || !calendarMonth) return;
+
+  const today = new Date();
+  const month = today.toLocaleString('default', { month: 'long' });
+  const year = today.getFullYear();
+  calendarMonth.textContent = `${month} ${year}`;
+
+  const startOfMonth = new Date(year, today.getMonth(), 1);
+  const endOfMonth = new Date(year, today.getMonth() + 1, 0);
+  const startDay = startOfMonth.getDay();
+  const daysInMonth = endOfMonth.getDate();
+
+  const scheduleMap = schedules.reduce((map, schedule) => {
+    if (!schedule.date) return map;
+    map[schedule.date] = map[schedule.date] || [];
+    map[schedule.date].push(schedule);
+    return map;
+  }, {});
+
+  calendarGrid.innerHTML = '';
+  for (let i = 0; i < startDay; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'calendar-day empty';
+    calendarGrid.appendChild(cell);
+  }
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateKey = `${year}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const cell = document.createElement('div');
+    const isToday = day === today.getDate();
+    cell.className = `calendar-day${isToday ? ' today' : ''}`;
+    cell.innerHTML = `<span class="day-number">${day}</span>`;
+    if (scheduleMap[dateKey]) {
+      cell.innerHTML += `<span class="day-dot"></span>`;
+      cell.title = scheduleMap[dateKey].map(s => `${s.case_type} @ ${s.hospital?.name || 'Unknown'}`).join('\n');
+    }
+    calendarGrid.appendChild(cell);
+  }
+
+  const upcomingEvents = schedules
+    .filter(s => new Date(s.date) >= today)
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .slice(0, 5);
+
+  calendarEvents.innerHTML = upcomingEvents.length > 0 ? upcomingEvents.map(s => `
+    <div class="event-item">
+      <div class="event-date">${new Date(s.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</div>
+      <div>
+        <div class="event-title">${s.case_type || 'Duty'}</div>
+        <div class="event-meta">${s.hospital?.name || 'Unknown'} • ${s.status}</div>
+      </div>
+    </div>
+  `).join('') : '<p>No upcoming calendar events.</p>';
+}
+
+function renderCurrentThemes(progress, notifs, nextSchedule) {
+  const themeContainer = document.getElementById('currentThemes');
+  if (!themeContainer) return;
+
+  const completed = progress.cases.filter(c => c.status === 'complete').length;
+  const total = progress.cases.length;
+  const unread = notifs.filter(n => !n.read).length;
+
+  const themes = [
+    {
+      title: 'Clinical Case Progress',
+      subtitle: `${completed}/${total} cases complete`
+    },
+    {
+      title: 'Attendance Tracking',
+      subtitle: nextSchedule ? `Next duty ${new Date(nextSchedule.date).toLocaleDateString()}` : 'No upcoming duty'
+    },
+    {
+      title: 'Opportunity Focus',
+      subtitle: 'Claim open duty slots to advance your requirements'
+    },
+    {
+      title: 'Notifications',
+      subtitle: `${unread} unread messages`
+    }
+  ];
+
+  themeContainer.innerHTML = themes.map(theme => `
+    <div class="theme-item">
+      <strong>${theme.title}</strong>
+      <p>${theme.subtitle}</p>
+    </div>
+  `).join('');
 }

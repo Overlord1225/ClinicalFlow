@@ -12,7 +12,6 @@ export function renderSidebar(activePage) {
       { label: 'Case Passport', icon: 'fa-passport', page: 'case-passport.html' },
       { label: 'Opportunity Board', icon: 'fa-bullhorn', page: 'opportunity-board.html' },
       { label: 'Attendance', icon: 'fa-fingerprint', page: 'attendance.html' },
-      { label: 'Face Recognition', icon: 'fa-camera', page: 'face-recognition.html' },
       { label: 'Incident Report', icon: 'fa-exclamation-triangle', page: 'incident-report.html' },
       { label: 'Notifications', icon: 'fa-bell', page: 'notifications.html' },
     ];

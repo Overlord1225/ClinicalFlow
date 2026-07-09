@@ -1,5 +1,5 @@
 import { requireAuth } from '../auth.js';
-import { supabase } from '../supabaseclient.js';
+import { supabase } from '../supabaseClient.js';
 import { getNotifications, markRead } from '../data.js';
 import { showToast, showLoading, hideLoading } from '../utils.js';
 import { updateNotifBadge as updateSidebarNotifBadge } from './sidebar.js';

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Biometric Attendance · ClinicalFlow</title>
+  <title>Attendance · ClinicalFlow</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
@@ -12,43 +12,70 @@
     <header id="sidebarContainer"></header>
     <main class="main-content">
       <header class="page-header">
-        <h1><i class="fas fa-fingerprint" style="color:#1a7a7a;"></i> Biometric Attendance</h1>
-        <div class="badge"><i class="fas fa-shield-alt"></i> GPS + Face Verification</div>
+        <h1><i class="fas fa-map-pin" style="color:#1a7a7a;"></i> Attendance</h1>
+        <div class="badge"><i class="fas fa-shield-alt"></i> GPS Verification</div>
       </header>
 
-      <section class="attendance-container" id="attendanceContainer">
-        <div class="duty-card" id="dutyInfo">
-          <h3 id="dutyTitle">Loading your duty...</h3>
-          <p id="dutyDetails"></p>
-          <div class="gps-status" id="gpsStatus"><i class="fas fa-map-pin"></i> GPS: <span id="gpsText">Waiting...</span></div>
-          <div class="face-status" id="faceStatus"><i class="fas fa-user"></i> Face: <span id="faceText">Waiting...</span></div>
+      <section class="attendance-grid">
+        <div class="attendance-left">
+          <div id="faceScannerContainer" class="face-scanner-container">
+            <div class="face-header">
+              <span id="modeBadge" class="mode-badge">Loading mode...</span>
+            </div>
+          </div>
+
+          <div class="gps-map-panel">
+            <div class="gps-summary">
+              <h3><i class="fas fa-map-marker-alt"></i> GPS & Location</h3>
+              <p id="gpsMapText">Grant location access and refresh to see your map and current distance.</p>
+            </div>
+            <div id="mapContainer" class="map-container">
+              <p>Map will load once GPS permission is granted.</p>
+            </div>
+            <div class="gps-details">
+              <div><strong>Current coords:</strong> <span id="currentCoords">—</span></div>
+              <div><strong>Hospital coords:</strong> <span id="hospitalCoords">—</span></div>
+              <div><strong>Distance:</strong> <span id="currentDistance">—</span></div>
+            </div>
+          </div>
         </div>
 
-        <div class="camera-wrapper" id="cameraWrapper">
-          <video id="video" autoplay playsinline style="width:100%;"></video>
-          <div class="camera-overlay" id="cameraOverlay"><i class="fas fa-camera"></i> Camera ready</div>
-        </div>
+        <aside class="attendance-right">
+          <section id="attendanceContainer" class="attendance-panel">
+            <div class="duty-card" id="dutyInfo">
+              <h3 id="dutyTitle">Loading your duty...</h3>
+              <p id="dutyDetails"></p>
+              <div class="attendance-meta">
+                <div><strong>Assigned Location:</strong> <span id="assignedLocation">Loading...</span></div>
+                <div><strong>Allowed radius:</strong> <span id="allowedRadius">-</span></div>
+              </div>
+              <div class="gps-status" id="gpsStatus"><i class="fas fa-map-pin"></i> GPS: <span id="gpsText">Waiting...</span></div>
+              <div class="distance-note" id="distanceInfo">Current location will be checked during Time In/Time Out.</div>
+            </div>
 
-        <div class="timer" id="timerDisplay">--:--</div>
+            <div class="timer" id="timerDisplay">--:--</div>
 
-        <div style="display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 12px;">
-          <button class="action-btn" id="timeInBtn"><i class="fas fa-sign-in-alt"></i> Time In</button>
-          <button class="action-btn" id="timeOutBtn" disabled><i class="fas fa-sign-out-alt"></i> Time Out</button>
-          <button class="action-btn secondary" id="refreshBtn"><i class="fas fa-sync"></i> Refresh</button>
-        </div>
+            <div class="attendance-actions">
+              <button class="action-btn" id="timeInBtn"><i class="fas fa-sign-in-alt"></i> Time In</button>
+              <button class="action-btn" id="timeOutBtn" disabled><i class="fas fa-sign-out-alt"></i> Time Out</button>
+              <button class="action-btn secondary" id="refreshBtn"><i class="fas fa-sync"></i> Refresh</button>
+            </div>
+          </section>
 
-        <div id="attendanceLog" style="margin-top: 20px;"></div>
+          <section class="attendance-records">
+            <h3>Attendance Records</h3>
+            <div id="attendanceHistory" class="attendance-history">
+              <p>Loading attendance history...</p>
+            </div>
+          </section>
+        </aside>
       </section>
     </main>
   </div>
 
-  <!-- MediaPipe Face Mesh -->
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3/drawing_utils.js" crossorigin="anonymous"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh@0.4/face_mesh.js" crossorigin="anonymous"></script>
-
+  <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/supabaseclient.js" type="module"></script>
+  <script src="js/supabaseClient.js" type="module"></script>
   <script src="js/utils.js" type="module"></script>
   <script src="js/data.js" type="module"></script>
   <script src="js/auth.js" type="module"></script>

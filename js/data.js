@@ -1,4 +1,4 @@
-import { supabase } from './supabaseclient.js';
+import { supabase } from './supabaseClient.js';
 
 export let currentUser = null;
 
@@ -607,7 +607,7 @@ export async function markAbsent(scheduleId, studentId) {
 
 // ---- Attendance ----
 export async function getUpcomingSchedule(studentId) {
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toLocaleDateString('en-CA');
   const { data, error } = await supabase
     .from('schedules')
     .select(`

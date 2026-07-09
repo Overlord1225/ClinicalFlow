@@ -16,13 +16,15 @@ import { showToast } from '../utils.js';
 let faceScanningInterval = null;
 let isScanningMultiple = false;
 
-export async function initFaceAttendance() {
+export async function initFaceScanner() {
   const user = requireAuth();
   if (!user) return;
   const role = user.role;
   const container = document.getElementById('faceScannerContainer');
-  
-  document.getElementById('modeBadge').textContent = role === 'ci' ? 'CI Mode' : 'Student Mode';
+  const modeBadge = document.getElementById('modeBadge');
+  if (modeBadge) {
+    modeBadge.textContent = role === 'ci' ? 'CI Mode' : 'Student Mode';
+  }
 
   const initialized = await initFaceApi();
   if (!initialized) {
@@ -32,7 +34,11 @@ export async function initFaceAttendance() {
 
   if (role === 'student') {
     await initStudentFaceMode(user, container);
-  } 
+  }
+}
+
+export async function initFaceAttendance() {
+  await initFaceScanner();
 }
 
 async function initStudentFaceMode(user, container) {

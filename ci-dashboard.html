@@ -22,12 +22,19 @@
       </section>
 
       <section class="table-wrap" style="margin-top:24px;">
-        <h3>� Assigned Hospital / Location</h3>
+        <h3>🏥 Assigned Hospital / Location</h3>
         <div id="ciLocation" class="status-message info">Loading assigned location...</div>
       </section>
 
       <section class="table-wrap" style="margin-top:24px;">
-        <h3>�👩‍⚕️ Manage Student Attendance</h3>
+        <h3>🚨 Recent Incident Reports</h3>
+        <div id="ciIncidentList" class="incident-list">
+          <p>Loading incident reports...</p>
+        </div>
+      </section>
+
+      <section class="table-wrap" style="margin-top:24px;">
+        <h3>🩺 Manage Student Attendance</h3>
         <table>
           <thead>
             <tr>
@@ -55,7 +62,7 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="js/supabaseclient.js" type="module"></script>
+  <script src="js/supabaseClient.js" type="module"></script>
   <script src="js/utils.js" type="module"></script>
   <script src="js/data.js" type="module"></script>
   <script src="js/auth.js" type="module"></script>

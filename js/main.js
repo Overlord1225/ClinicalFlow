@@ -2,7 +2,6 @@ import { getCurrentUser, requireAuth, requireRole, logout, redirectToRoleDashboa
 import { renderSidebar } from './modules/sidebar.js';
 import { initNotifications, subscribeToNotifications } from './modules/notifications.js';
 import { initAttendance } from './modules/attendance.js';
-import { initFaceAttendance } from './modules/faceRecognitionUI.js';
 import { initStudentDashboard, initCasePassport, initOpportunityBoard } from './modules/student.js';
 import {
   initSchedulerDashboard,
@@ -96,9 +95,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Ensure admin account exists (only if no user is logged in)
   const user = getCurrentUser();
   const allowedPagesByRole = {
-    student: ['student-dashboard.html', 'case-passport.html', 'attendance.html', 'face-recognition.html', 'opportunity-board.html', 'incident-report.html', 'notifications.html'],
+    student: ['student-dashboard.html', 'case-passport.html', 'attendance.html', 'opportunity-board.html', 'incident-report.html', 'notifications.html'],
     scheduler: ['scheduler-dashboard.html', 'schedule-management.html', 'ai-matchmaker.html', 'notifications.html'],
-    ci: ['ci-dashboard.html', 'face-recognition.html', 'incident-report.html', 'notifications.html'],
+    ci: ['ci-dashboard.html', 'incident-report.html', 'notifications.html'],
     admin: ['admin.html', 'schedule-management.html', 'ai-matchmaker.html', 'notifications.html']
   };
 
@@ -128,8 +127,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       'notifications.html': 'notifications.html',
       'schedule-management.html': 'schedule-management.html',
       'opportunity-board.html': 'opportunity-board.html',
-      'incident-report.html': 'incident-report.html',
-      'face-recognition.html': 'face-recognition.html'
+      'incident-report.html': 'incident-report.html'
     };
     sidebarContainer.innerHTML = renderSidebar(activeMap[path] || '');
   }
@@ -158,9 +156,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else if (path === 'attendance.html') {
     requireRole(['student']);
     await initAttendance();
-  } else if (path === 'face-recognition.html') {
-    const user = requireAuth();
-    if (user) await initFaceAttendance();
   } else if (path === 'ai-matchmaker.html') {
     requireRole(['scheduler', 'admin']);
     await initAIMatchmaker();

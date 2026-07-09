@@ -16,36 +16,61 @@
         <div class="badge"><i class="fas fa-graduation-cap"></i> <span id="studentProgram">BSN</span></div>
       </header>
 
-      <section class="card-grid">
-        <div class="stat-card"><span class="stat-icon"><i class="fas fa-clipboard-list"></i></span><div class="stat-num" id="totalCases">0</div><div class="stat-label">Total Required Cases</div></div>
-        <div class="stat-card"><span class="stat-icon"><i class="fas fa-check-circle" style="color:#166534;"></i></span><div class="stat-num" id="completedCases">0</div><div class="stat-label">Completed</div></div>
-        <div class="stat-card"><span class="stat-icon"><i class="fas fa-hourglass-half" style="color:#b45309;"></i></span><div class="stat-num" id="pendingCases">0</div><div class="stat-label">Pending</div></div>
-        <div class="stat-card"><span class="stat-icon"><i class="fas fa-bell"></i></span><div class="stat-num" id="unreadBadge">0</div><div class="stat-label">Unread Notifications</div></div>
-      </section>
+      <section class="dashboard-grid">
+        <main class="dashboard-left">
+          <section class="card-grid">
+            <div class="stat-card"><span class="stat-icon"><i class="fas fa-clipboard-list"></i></span><div class="stat-num" id="totalCases">0</div><div class="stat-label">Total Required Cases</div></div>
+            <div class="stat-card"><span class="stat-icon"><i class="fas fa-check-circle" style="color:#166534;"></i></span><div class="stat-num" id="completedCases">0</div><div class="stat-label">Completed</div></div>
+            <div class="stat-card"><span class="stat-icon"><i class="fas fa-hourglass-half" style="color:#b45309;"></i></span><div class="stat-num" id="pendingCases">0</div><div class="stat-label">Pending</div></div>
+            <div class="stat-card"><span class="stat-icon"><i class="fas fa-bell"></i></span><div class="stat-num" id="unreadBadge">0</div><div class="stat-label">Unread Notifications</div></div>
+          </section>
 
-      <section class="table-wrap">
-        <h3>� Assigned Hospital / Location</h3>
-        <div id="assignedHospitalLocation" class="status-message info">Loading your assignment...</div>
-      </section>
+          <section class="table-wrap calendar-card">
+            <div class="calendar-header">
+              <div>
+                <h3>📆 Calendar</h3>
+                <p class="calendar-meta">Your current schedule at a glance</p>
+              </div>
+              <div class="calendar-today" id="calendarMonth"></div>
+            </div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+            <div id="calendarEvents" class="calendar-events"></div>
+          </section>
+        </main>
 
-      <section class="table-wrap">
-        <h3>📅 Upcoming Duties</h3>
-        <table><thead><tr><th>Date</th><th>Hospital</th><th>Case</th><th>Status</th></tr></thead><tbody id="upcomingTable"></tbody></table>
-      </section>
+        <aside class="dashboard-right">
+          <section class="table-wrap current-themes-panel">
+            <h3>Current Themes</h3>
+            <div id="currentThemes" class="themes-list">
+              <div class="theme-item">Loading current themes...</div>
+            </div>
+          </section>
 
-      <section class="table-wrap">
-        <h3>🧾 Attendance Records</h3>
-        <table><thead><tr><th>Date</th><th>Hospital</th><th>Case</th><th>Time In</th><th>Time Out</th><th>Status</th></tr></thead><tbody id="historyTable"></tbody></table>
-      </section>
+          <section class="table-wrap">
+            <h3>Assigned Hospital / Location</h3>
+            <div id="assignedHospitalLocation" class="status-message info">Loading your assignment...</div>
+          </section>
 
-      <section class="table-wrap">
-        <h3>✅ Verified Clinical Cases</h3>
-        <div id="verifiedCasesList">Loading your clinical case progress...</div>
-      </section>
+          <section class="table-wrap">
+            <h3>Upcoming Duties</h3>
+            <table><thead><tr><th>Date</th><th>Hospital</th><th>Case</th><th>Status</th></tr></thead><tbody id="upcomingTable"></tbody></table>
+          </section>
 
-      <section>
-        <h3>🔔 Recent Notifications</h3>
-        <div id="recentNotifs"></div>
+          <section class="table-wrap">
+            <h3>Attendance Records</h3>
+            <table><thead><tr><th>Date</th><th>Hospital</th><th>Case</th><th>Time In</th><th>Time Out</th><th>Status</th></tr></thead><tbody id="historyTable"></tbody></table>
+          </section>
+
+          <section class="table-wrap">
+            <h3>Verified Clinical Cases</h3>
+            <div id="verifiedCasesList">Loading your clinical case progress...</div>
+          </section>
+
+          <section class="table-wrap">
+            <h3>Recent Notifications</h3>
+            <div id="recentNotifs"></div>
+          </section>
+        </aside>
       </section>
     </main>
   </div>

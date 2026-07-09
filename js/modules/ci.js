@@ -1,12 +1,43 @@
-import { getCurrentUser, requireAuth } from '../auth.js';
+import { requireAuth } from '../auth.js';
 import {
   getAssignedStudents,
   getCIAssignedHospital,
+  getAllIncidentReports,
   markAttendanceManually,
   supabase
 } from '../data.js';
 import { showToast, showLoading, hideLoading } from '../utils.js';
 import { initSendAnnouncement } from './scheduler.js';
+
+async function loadCIIncidents() {
+  const incidentContainer = document.getElementById('ciIncidentList');
+  if (!incidentContainer) return;
+
+  try {
+    incidentContainer.innerHTML = '<div class="loading-spinner"><div class="spinner"></div><p>Loading incident reports...</p></div>';
+    const incidents = await getAllIncidentReports();
+    if (!incidents || incidents.length === 0) {
+      incidentContainer.innerHTML = '<p>No incident reports yet.</p>';
+      return;
+    }
+
+    incidentContainer.innerHTML = incidents.slice(0, 5).map(r => `
+      <div class="incident-item">
+        <div class="incident-header">
+          <strong>${r.title}</strong>
+          <span class="status-badge ${r.status}">${r.status.replace(/_/g, ' ')}</span>
+        </div>
+        <div class="incident-body">
+          <p>${r.description}</p>
+          <small>Reporter: ${r.reporter?.name || 'N/A'} | Date: ${r.incident_date} | Location: ${r.location || 'N/A'}</small>
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    incidentContainer.innerHTML = '<p class="text-error">Unable to load incidents.</p>';
+    console.error('CI incident load error:', err);
+  }
+}
 
 export async function initCIDashboard() {
   try {
@@ -40,6 +71,7 @@ export async function initCIDashboard() {
     hideLoading('ciStudentsTable');
     showToast('CI dashboard loaded', 'success', 2000);
 
+    await loadCIIncidents();
     // Also initialize absence marking and announcement (call from scheduler module)
     await initAbsenceMarking();
     initSendAnnouncement();

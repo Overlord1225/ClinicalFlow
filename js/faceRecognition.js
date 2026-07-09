@@ -6,7 +6,7 @@ export async function loadFaceApiModels() {
   if (modelsLoaded) return true;
 
   try {
-    const MODEL_URL = 'js/face-api-models/';
+    const MODEL_URL = '/js/face-api-models/';
     
     await Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),

@@ -1,0 +1,16 @@
+/* face recognition side panel */
+.face-recognition-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.8fr) minmax(300px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+@media (max-width: 1080px) {
+  .face-recognition-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.attendance-side-panel .attendance-container {
+  max-width: 100%;
+  margin: 0;
+}
